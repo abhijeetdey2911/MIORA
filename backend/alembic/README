@@ -1,0 +1,9 @@
+# Project JobHunter Database Migrations
+
+This directory contains Alembic migration scripts.
+Migrations will be auto-generated in subsequent phases when data models (Jobs, Resumes, Applications) are introduced.
+
+Commands:
+- Generate migration: `alembic revision --autogenerate -m "description"`
+- Apply migrations: `alembic upgrade head`
+- Rollback migration: `alembic downgrade -1`
