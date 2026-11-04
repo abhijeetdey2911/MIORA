@@ -65,6 +65,10 @@ export function JobsDiscoveryPage() {
     };
   }, [selectedPreferenceId, shortlistedOnly, minScore, searchQuery]);
 
+  const selectedPreference = preferences.find(
+    (p) => p.id === selectedPreferenceId,
+  );
+
   const filteredMatches = matches.filter((m) => {
     const job = m.discovered_job;
     if (
@@ -184,6 +188,34 @@ export function JobsDiscoveryPage() {
             </span>
           </div>
         </div>
+
+        {selectedPreference && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs">
+            <div className="flex flex-wrap items-center gap-2">
+              <MapPin className="h-4 w-4 text-accent shrink-0" />
+              <span className="font-medium text-ink">
+                Active Location Mode:
+              </span>
+              <span className="rounded-md bg-accent/10 px-2 py-0.5 font-semibold text-accent-ink">
+                {selectedPreference.location_mode === 'SELECTED_LOCATIONS_ONLY'
+                  ? 'Selected Locations Only'
+                  : selectedPreference.location_mode === 'WORLDWIDE_REMOTE'
+                  ? 'Worldwide Remote'
+                  : 'India Only (Default)'}
+              </span>
+              <span className="text-muted">
+                Preferred Cities: {selectedPreference.locations.join(', ')}
+              </span>
+            </div>
+            <span className="text-[11px] text-muted">
+              {selectedPreference.location_mode === 'SELECTED_LOCATIONS_ONLY'
+                ? 'Only jobs matching your selected cities are eligible.'
+                : selectedPreference.location_mode === 'WORLDWIDE_REMOTE'
+                ? 'Worldwide remote jobs and Indian locations are eligible.'
+                : 'All Indian locations & India-eligible remote roles are eligible.'}
+            </span>
+          </div>
+        )}
       </section>
 
       {/* Discovered & Matched Jobs List */}

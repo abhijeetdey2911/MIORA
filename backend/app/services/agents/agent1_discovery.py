@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.models.job_preference import JobPreference
 from app.models.multi_agent import DiscoveredJob, JobSource
+from app.services.location_matcher import evaluate_location_eligibility
 
 logger = logging.getLogger("jobhunter.agent1_discovery")
 
@@ -159,12 +160,29 @@ class RemotiveOfficialAPIAdapter(BaseJobSourceAdapter):
             return []
 
         raw_jobs = payload.get("jobs") or []
-        for item in raw_jobs[:max_results]:
+        for item in raw_jobs:
             url = (item.get("url") or "").strip()
             title = (item.get("title") or "").strip()
             company = (item.get("company_name") or "").strip()
             description = _strip_html(item.get("description") or "")
             if not (url and title and company and description):
+                continue
+
+            location = (item.get("candidate_required_location") or "").strip() or None
+            # Enforce location eligibility for Remotive jobs
+            loc_elig = evaluate_location_eligibility(
+                job_location=location,
+                job_work_mode="Remote",
+                preference_locations=preference.locations or [],
+                location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                preference_work_mode=preference.work_mode,
+                job_description=description,
+                raw_metadata={
+                    "candidate_required_location": item.get("candidate_required_location"),
+                    "tags": item.get("tags") or [],
+                },
+            )
+            if not loc_elig.is_eligible:
                 continue
 
             posted_at: Optional[datetime] = None
@@ -178,7 +196,6 @@ class RemotiveOfficialAPIAdapter(BaseJobSourceAdapter):
                     posted_at = None
 
             salary_raw = (item.get("salary") or "").strip() or None
-            location = (item.get("candidate_required_location") or "").strip() or None
             job_type = (item.get("job_type") or "").strip()
             emp_type = (
                 "Full-time"
@@ -211,6 +228,8 @@ class RemotiveOfficialAPIAdapter(BaseJobSourceAdapter):
                     },
                 )
             )
+            if len(results) >= max_results:
+                break
         return results
 
 
@@ -257,6 +276,21 @@ class ArbeitnowPublicAPIAdapter(BaseJobSourceAdapter):
                 if not any(kw in haystack for kw in (role_keywords + skill_keywords)):
                     continue
 
+            job_loc = (item.get("location") or "").strip() or None
+            job_wm = "Remote" if item.get("remote") else "On-site"
+
+            loc_elig = evaluate_location_eligibility(
+                job_location=job_loc,
+                job_work_mode=job_wm,
+                preference_locations=preference.locations or [],
+                location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                preference_work_mode=preference.work_mode,
+                job_description=description,
+                raw_metadata={"tags": item.get("tags") or []},
+            )
+            if not loc_elig.is_eligible:
+                continue
+
             created_ts = item.get("created_at")
             posted_at = (
                 datetime.fromtimestamp(int(created_ts), tz=timezone.utc)
@@ -272,8 +306,8 @@ class ArbeitnowPublicAPIAdapter(BaseJobSourceAdapter):
                     company=company[:200],
                     description=description,
                     official_job_url=url,
-                    location=(item.get("location") or "").strip() or None,
-                    work_mode="Remote" if item.get("remote") else "On-site",
+                    location=job_loc,
+                    work_mode=job_wm,
                     employment_type="Full-time",
                     experience_requirement=None,
                     posted_at=posted_at,
@@ -370,6 +404,18 @@ class JobDiscoveryAgent:
         seen_urls: set[str] = set()
 
         for raw in collected_raw[:max_jobs]:
+            loc_elig = evaluate_location_eligibility(
+                job_location=raw.location,
+                job_work_mode=raw.work_mode,
+                preference_locations=preference.locations or [],
+                location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                preference_work_mode=preference.work_mode,
+                job_description=raw.description,
+                raw_metadata=raw.raw_metadata,
+            )
+            if not loc_elig.is_eligible:
+                continue
+
             try:
                 canonical_url = normalize_canonical_url(raw.official_job_url)
             except ValueError:

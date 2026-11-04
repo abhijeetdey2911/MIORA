@@ -71,10 +71,19 @@ export function PreferenceCard({
             <h2 className="truncate text-base font-semibold text-ink">
               {preference_name}
             </h2>
-            <p className="mt-1 flex items-center gap-1.5 text-xs text-muted">
-              <MapPin className="h-3.5 w-3.5 shrink-0 text-subtle" strokeWidth={1.9} />
-              <span className="truncate">{locations.join(', ')}</span>
-            </p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted">
+              <span className="flex items-center gap-1">
+                <MapPin className="h-3.5 w-3.5 shrink-0 text-subtle" strokeWidth={1.9} />
+                <span className="truncate">{locations.join(', ')}</span>
+              </span>
+              <span className="rounded-md border border-line bg-surface-2 px-1.5 py-0.5 text-[10px] font-medium text-ink">
+                {preference.location_mode === 'SELECTED_LOCATIONS_ONLY'
+                  ? 'Selected Cities Only'
+                  : preference.location_mode === 'WORLDWIDE_REMOTE'
+                  ? 'Worldwide Remote'
+                  : 'India Only'}
+              </span>
+            </div>
           </div>
 
           <div className="shrink-0">

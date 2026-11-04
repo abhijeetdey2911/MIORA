@@ -22,6 +22,7 @@ from app.models.multi_agent import DiscoveredJob, JobMatch
 from app.models.orchestration import PreferenceJobResult
 from app.models.resume_intelligence import ResumeAnalysis, ResumeVersion
 from app.services.ai_provider import AIProviderClient
+from app.services.location_matcher import evaluate_location_eligibility
 
 logger = logging.getLogger("jobhunter.agent2_matching")
 
@@ -100,9 +101,17 @@ class JobMatchingAgent:
             )
             total_api_cost += cost
 
-            is_matching = evaluation.match_score >= max(50, threshold - 15)
+            has_location_ineligibility = any(
+                "Location Ineligible" in r for r in evaluation.reasons_for_rejection
+            )
+            is_matching = (
+                evaluation.match_score >= max(50, threshold - 15)
+                and not has_location_ineligibility
+            )
             is_shortlisted = bool(
-                evaluation.match_score >= threshold and evaluation.shortlisted
+                evaluation.match_score >= threshold
+                and evaluation.shortlisted
+                and not has_location_ineligibility
             )
 
             if existing_match is not None:
@@ -233,10 +242,13 @@ class JobMatchingAgent:
             "STRICT RULES:\n"
             "1. Compare the discovered job against the active Job Preference and the approved Resume.\n"
             "2. Never fabricate candidate qualifications.\n"
-            "3. Never treat a missing keyword as proof that the candidate lacks a skill; list it in "
+            "3. Location compliance is mandatory: Candidate is based in India. If the job is on-site "
+            "or hybrid in an international location (e.g. Germany, USA, UK) or restricted to non-India residents, "
+            "it is INELIGIBLE. Set match_score <= 25, shortlisted = false, and include 'Location Ineligible' in reasons_for_rejection.\n"
+            "4. Never treat a missing keyword as proof that the candidate lacks a skill; list it in "
             "`missing_or_unverified_requirements` as an unverified requirement.\n"
-            "4. Set `shortlisted` to true ONLY if `match_score` >= the configured threshold.\n"
-            "5. Return valid JSON matching the schema."
+            "5. Set `shortlisted` to true ONLY if `match_score` >= the configured threshold AND location is eligible.\n"
+            "6. Return valid JSON matching the schema."
         )
         user_prompt = json.dumps(
             {
@@ -245,6 +257,7 @@ class JobMatchingAgent:
                     "name": preference.preference_name,
                     "target_roles": preference.job_roles,
                     "locations": preference.locations,
+                    "location_mode": getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
                     "work_mode": preference.work_mode,
                     "employment_type": preference.employment_type,
                     "experience_level": preference.experience_level,
@@ -277,7 +290,23 @@ class JobMatchingAgent:
             schema_cls=LLMJobMatchOutput,
             operation_label="agent2_job_matching",
         )
-        result.shortlisted = bool(result.match_score >= threshold)
+        loc_elig = evaluate_location_eligibility(
+            job_location=job.location,
+            job_work_mode=job.work_mode,
+            preference_locations=preference.locations or [],
+            location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+            preference_work_mode=preference.work_mode,
+            job_description=job.description,
+            raw_metadata=job.raw_metadata,
+        )
+        if not loc_elig.is_eligible:
+            result.shortlisted = False
+            result.match_score = min(result.match_score, 25)
+            result.reasons_for_rejection.insert(
+                0, f"Location Ineligible: {loc_elig.reason}"
+            )
+        else:
+            result.shortlisted = bool(result.match_score >= threshold)
         return result
 
     def _evaluate_deterministic(
@@ -364,19 +393,24 @@ class JobMatchingAgent:
                 "No direct overlap found between job description and preference skills."
             )
 
-        # 3. Location & Work Mode alignment (up to 15 points)
-        loc_score = 10
-        job_loc_lower = (job.location or "").lower()
-        pref_locs = [loc.lower() for loc in (preference.locations or [])]
-        if (
-            preference.work_mode.lower() == "remote"
-            or (job.work_mode and job.work_mode.lower() == "remote")
-            or "remote" in job_loc_lower
-            or any(pl in job_loc_lower for pl in pref_locs)
-        ):
+        # 3. Location & Work Mode alignment (Mandatory Eligibility Check)
+        loc_elig = evaluate_location_eligibility(
+            job_location=job.location,
+            job_work_mode=job.work_mode,
+            preference_locations=preference.locations or [],
+            location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+            preference_work_mode=preference.work_mode,
+            job_description=job.description,
+            raw_metadata=job.raw_metadata,
+        )
+
+        if not loc_elig.is_eligible:
+            loc_score = 0
+            reasons_for_rejection.append(f"Location Ineligible: {loc_elig.reason}")
+        else:
             loc_score = 15
             reasons_for_matching.append(
-                f"Location / work mode ({job.location or job.work_mode or 'Flexible'}) aligns with preference."
+                f"Location compatible: {loc_elig.matched_location or job.location or 'India/Remote'} ({loc_elig.reason})"
             )
 
         # 4. Salary & Resume Verification (up to 10 points)
@@ -401,8 +435,15 @@ class JobMatchingAgent:
                 f"Offered maximum salary ({job.max_salary}) is below minimum preference ({preference.min_salary})."
             )
 
-        total_score = max(0, min(100, role_score + skill_score + loc_score + qual_score))
-        shortlisted = bool(total_score >= threshold)
+        raw_score = role_score + skill_score + loc_score + qual_score
+        if not loc_elig.is_eligible:
+            # Enforce Requirement 6: Location compatibility is a mandatory eligibility check.
+            # Ineligible location caps score at 25 and strictly prevents shortlisting.
+            total_score = min(raw_score, 25)
+            shortlisted = False
+        else:
+            total_score = max(0, min(100, raw_score))
+            shortlisted = bool(total_score >= threshold)
 
         if not shortlisted and not reasons_for_rejection:
             reasons_for_rejection.append(

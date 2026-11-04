@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 WorkMode = Literal["Remote", "Hybrid", "On-site"]
 EmploymentType = Literal["Full-time", "Internship", "Contract", "Part-time"]
 ExperienceLevel = Literal["Fresher", "Entry-level", "Experienced"]
+LocationMode = Literal["INDIA_ONLY", "SELECTED_LOCATIONS_ONLY", "WORLDWIDE_REMOTE"]
 
 
 def _clean_string_list(values: List[str], field_label: str) -> List[str]:
@@ -47,6 +48,10 @@ class JobPreferenceBase(BaseModel):
         ...,
         min_length=1,
         description="Preferred job locations",
+    )
+    location_mode: LocationMode = Field(
+        default="INDIA_ONLY",
+        description="Location search mode: INDIA_ONLY, SELECTED_LOCATIONS_ONLY, or WORLDWIDE_REMOTE",
     )
     work_mode: WorkMode = Field(
         ...,

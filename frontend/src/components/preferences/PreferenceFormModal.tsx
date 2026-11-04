@@ -6,6 +6,7 @@ import {
   EXPERIENCE_LEVELS,
   JOB_CATEGORIES,
   JOB_ROLES_BY_CATEGORY,
+  LOCATION_MODES,
   PREDEFINED_LOCATIONS,
   WORK_MODES,
   inferJobCategory,
@@ -14,6 +15,7 @@ import {
   type JobCategory,
   type JobPreference,
   type JobPreferencePayload,
+  type LocationMode,
   type WorkMode,
 } from '../../types/preference';
 import { PreferenceStatusToggle } from './PreferenceStatusToggle';
@@ -160,6 +162,9 @@ export function PreferenceFormModal({
   const [locations, setLocations] = useState<string[]>(
     () => initialPreference?.locations ?? [],
   );
+  const [locationMode, setLocationMode] = useState<LocationMode>(
+    () => initialPreference?.location_mode ?? 'INDIA_ONLY',
+  );
 
   const [workMode, setWorkMode] = useState<WorkMode>(
     () => initialPreference?.work_mode ?? 'Remote',
@@ -261,6 +266,7 @@ export function PreferenceFormModal({
       preference_name: preferenceName.trim(),
       job_roles: finalRoles,
       locations: finalLocations,
+      location_mode: locationMode,
       work_mode: workMode,
       employment_type: employmentType,
       experience_level: experienceLevel,
@@ -416,6 +422,40 @@ export function PreferenceFormModal({
                 }
               }}
             />
+
+            {/* Location Search & Matching Mode */}
+            <div className="rounded-xl border border-line bg-surface-2 p-3">
+              <label
+                htmlFor="preference-location-mode"
+                className="block text-xs font-medium text-ink"
+              >
+                Location Search & Matching Mode <span className="text-accent">*</span>
+              </label>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                {LOCATION_MODES.map((modeOpt) => {
+                  const isSelected = locationMode === modeOpt.value;
+                  return (
+                    <button
+                      key={modeOpt.value}
+                      type="button"
+                      onClick={() => setLocationMode(modeOpt.value)}
+                      className={`flex flex-col items-start rounded-lg border p-2.5 text-left transition-colors ${
+                        isSelected
+                          ? 'border-accent bg-accent/10 text-ink ring-1 ring-accent'
+                          : 'border-line bg-surface text-muted hover:border-subtle hover:text-ink'
+                      }`}
+                    >
+                      <span className="text-xs font-semibold text-ink">
+                        {modeOpt.label}
+                      </span>
+                      <span className="mt-1 text-[11px] leading-tight text-muted">
+                        {modeOpt.description}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Work Mode, Employment Type, Experience Level */}
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">

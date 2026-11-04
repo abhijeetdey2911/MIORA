@@ -110,6 +110,36 @@ export const PREDEFINED_LOCATIONS: readonly string[] = [
   'Anywhere in India',
 ];
 
+export type LocationMode = 'INDIA_ONLY' | 'SELECTED_LOCATIONS_ONLY' | 'WORLDWIDE_REMOTE';
+
+export interface LocationModeOption {
+  value: LocationMode;
+  label: string;
+  badge: string;
+  description: string;
+}
+
+export const LOCATION_MODES: readonly LocationModeOption[] = [
+  {
+    value: 'INDIA_ONLY',
+    label: 'India Only (Default)',
+    badge: 'India Only',
+    description: 'Restricts results to Indian locations (all cities) & India-eligible remote roles.',
+  },
+  {
+    value: 'SELECTED_LOCATIONS_ONLY',
+    label: 'Selected Locations Only',
+    badge: 'Selected Cities',
+    description: 'Strictly restricted to your chosen cities above. Excludes other cities.',
+  },
+  {
+    value: 'WORLDWIDE_REMOTE',
+    label: 'Worldwide Remote',
+    badge: 'Worldwide Remote',
+    description: 'Includes global remote roles open to Indian candidates + Indian locations.',
+  },
+];
+
 export const WORK_MODES: readonly WorkMode[] = ['Remote', 'Hybrid', 'On-site'];
 
 export const EMPLOYMENT_TYPES: readonly EmploymentType[] = [
@@ -131,6 +161,7 @@ export interface JobPreferencePayload {
   preference_name: string;
   job_roles: string[];
   locations: string[];
+  location_mode?: LocationMode;
   work_mode: WorkMode;
   employment_type: EmploymentType;
   experience_level: ExperienceLevel;

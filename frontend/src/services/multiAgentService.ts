@@ -182,11 +182,13 @@ export async function toggleJobSource(
 }
 
 export async function listDiscoveredJobs(params?: {
+  preference_id?: string;
   search?: string;
   work_mode?: string;
   source_name?: string;
 }): Promise<DiscoveredJobItem[]> {
   const qs = new URLSearchParams();
+  if (params?.preference_id) qs.set('preference_id', params.preference_id);
   if (params?.search) qs.set('search', params.search);
   if (params?.work_mode) qs.set('work_mode', params.work_mode);
   if (params?.source_name) qs.set('source_name', params.source_name);

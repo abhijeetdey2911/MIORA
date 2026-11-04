@@ -23,6 +23,7 @@ from app.schemas.multi_agent import (
     JobSourceResponse,
 )
 from app.services.agents import agent1_discovery
+from app.services.location_matcher import evaluate_location_eligibility
 
 router = APIRouter(prefix="/jobs")
 
@@ -78,6 +79,7 @@ def toggle_job_source(
     summary="List Deduplicated Discovered Jobs (Agent 1)",
 )
 def list_discovered_jobs(
+    preference_id: Optional[UUID] = Query(default=None),
     search: Optional[str] = Query(default=None),
     work_mode: Optional[str] = Query(default=None),
     source_name: Optional[str] = Query(default=None),
@@ -96,7 +98,29 @@ def list_discovered_jobs(
             | DiscoveredJob.company.ilike(pattern)
             | DiscoveredJob.location.ilike(pattern)
         )
-    jobs = list(db.scalars(stmt.limit(limit)).all())
+    jobs = list(db.scalars(stmt.limit(limit * 2 if preference_id else limit)).all())
+
+    # If preference_id is provided, enforce saved preference location filtering
+    if preference_id:
+        pref = db.get(JobPreference, preference_id)
+        if pref:
+            filtered_jobs: List[DiscoveredJob] = []
+            for j in jobs:
+                loc_check = evaluate_location_eligibility(
+                    job_location=j.location,
+                    job_work_mode=j.work_mode,
+                    preference_locations=pref.locations or [],
+                    location_mode=getattr(pref, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                    preference_work_mode=pref.work_mode,
+                    job_description=j.description,
+                    raw_metadata=j.raw_metadata,
+                )
+                if loc_check.is_eligible:
+                    filtered_jobs.append(j)
+                if len(filtered_jobs) >= limit:
+                    break
+            jobs = filtered_jobs
+
     return [DiscoveredJobResponse.model_validate(j) for j in jobs]
 
 

@@ -37,6 +37,12 @@ class JobPreference(Base):
         nullable=False,
         default=list,
     )
+    location_mode: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        default="INDIA_ONLY",
+        server_default="INDIA_ONLY",
+    )
     work_mode: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
