@@ -69,3 +69,4 @@ To preserve codebase modularity and prevent premature complexity:
 - **No AI agents** or agent orchestration engines are created in Phase 1.
 - **No scraping or resume parsing** routines are included.
 - **No business entity tables** are created yet; schema models will be added in Phase 2 via Alembic.
+

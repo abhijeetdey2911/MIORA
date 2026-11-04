@@ -40,3 +40,4 @@ class HealthResponse(BaseModel):
     timestamp: datetime = Field(description="Current UTC timestamp")
     services: ServiceHealthMap = Field(description="Status of individual sub-services")
     system: SystemInfo = Field(description="System runtime metrics")
+

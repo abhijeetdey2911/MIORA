@@ -8,3 +8,4 @@ DO $$
 BEGIN
     RAISE NOTICE 'Project JobHunter Database Initialized Successfully.';
 END $$;
+

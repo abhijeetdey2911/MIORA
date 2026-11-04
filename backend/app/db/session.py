@@ -48,3 +48,4 @@ def check_db_connectivity() -> Tuple[bool, Optional[float], Optional[str]]:
     except Exception as exc:
         latency_ms = round((time.perf_counter() - start_time) * 1000, 2)
         return False, latency_ms, str(exc)
+

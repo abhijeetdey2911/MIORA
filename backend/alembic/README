@@ -7,3 +7,4 @@ Commands:
 - Generate migration: `alembic revision --autogenerate -m "description"`
 - Apply migrations: `alembic upgrade head`
 - Rollback migration: `alembic downgrade -1`
+

@@ -17,3 +17,4 @@ router = APIRouter()
 def get_v1_health() -> HealthResponse:
     """Retrieve system health and database connection status."""
     return HealthService.get_health_status()
+

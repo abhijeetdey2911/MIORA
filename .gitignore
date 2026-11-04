@@ -65,6 +65,8 @@ lerna-debug.log*
 *.sqlite3
 *.db
 postgres_data/
+backend/storage/resumes/*
+!backend/storage/resumes/.gitkeep
 
 # Logs
 *.log
@@ -86,3 +88,4 @@ logs/
 .Trashes
 ehthumbs.db
 Thumbs.db
+

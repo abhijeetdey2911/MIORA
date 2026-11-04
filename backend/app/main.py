@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -76,12 +77,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     """Format request validation errors cleanly."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={
+        content=jsonable_encoder({
             "error": True,
             "status_code": 422,
             "message": "Validation error",
             "details": exc.errors(),
-        },
+        }),
     )
 
 
@@ -129,3 +130,4 @@ def root_info() -> dict:
         "health": "/health",
         "api_v1_health": f"{settings.API_V1_STR}/health",
     }
+

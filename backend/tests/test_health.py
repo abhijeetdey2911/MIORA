@@ -40,3 +40,4 @@ def test_root_meta_endpoint() -> None:
     assert data["project"] == "Project JobHunter"
     assert "docs" in data
     assert "health" in data
+

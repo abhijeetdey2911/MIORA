@@ -1,24 +1,23 @@
-import React from 'react';
+import { ArrowLeft, Compass } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { HelpCircle, ArrowLeft } from 'lucide-react';
 
-export const NotFoundPage: React.FC = () => {
+export function NotFoundPage() {
   return (
-    <div className="flex flex-col items-center justify-center py-20 text-center">
-      <div className="p-4 rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 mb-4">
-        <HelpCircle className="w-10 h-10" />
+    <div className="flex flex-col items-center rounded-2xl border border-dashed border-line bg-surface px-6 py-16 text-center shadow-card">
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-2 text-muted">
+        <Compass className="h-6 w-6" strokeWidth={1.9} />
       </div>
-      <h2 className="text-xl font-bold text-white">Resource Not Found</h2>
-      <p className="text-xs text-slate-400 mt-1 max-w-sm">
-        The requested view does not exist in Phase 1 foundation.
+      <h2 className="mt-4 text-base font-semibold text-ink">Nothing here</h2>
+      <p className="mt-1 max-w-sm text-sm text-muted">
+        We couldn't find the page you were looking for.
       </p>
       <Link
         to="/"
-        className="mt-6 inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 transition"
+        className="mt-6 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-sm font-medium text-white transition hover:brightness-105"
       >
-        <ArrowLeft className="w-3.5 h-3.5" />
-        <span>Return to Infrastructure Shell</span>
+        <ArrowLeft className="h-4 w-4" />
+        Back to dashboard
       </Link>
     </div>
   );
-};
+}

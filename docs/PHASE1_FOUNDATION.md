@@ -17,3 +17,4 @@
 | **Docker** | Dockerfile Frontend| Verified | Node 22 build + Nginx 1.27 Alpine production |
 | **Docker** | Docker Compose | Verified | Services: `frontend`, `backend`, `db` |
 | **Docs** | Documentation | Verified | README, Architecture, and Phase 1 specifications |
+

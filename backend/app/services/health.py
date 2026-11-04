@@ -60,3 +60,4 @@ class HealthService:
                 environment=settings.ENVIRONMENT,
             ),
         )
+

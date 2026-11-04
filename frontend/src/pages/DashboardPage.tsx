@@ -1,70 +1,153 @@
-import React from 'react';
-import { useOutletContext } from 'react-router-dom';
-import { HealthCard } from '../components/dashboard/HealthCard';
-import { SystemMetrics } from '../components/dashboard/SystemMetrics';
-import { PhaseRoadmap } from '../components/dashboard/PhaseRoadmap';
-import type { HealthCheckResult } from '../types/health';
-import { ArrowUpRight, Terminal, Layers, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Award,
+  Briefcase,
+  CalendarCheck,
+  Layers,
+  Send,
+  Sparkles,
+} from 'lucide-react';
+import { ActivityChart } from '../components/dashboard/ActivityChart';
+import { AutomationCard } from '../components/dashboard/AutomationCard';
+import { PreferencePerformance } from '../components/dashboard/PreferencePerformance';
+import { RecentUpdates } from '../components/dashboard/RecentUpdates';
+import { StatCard } from '../components/dashboard/StatCard';
+import { getDashboardOverview } from '../services/multiAgentService';
+import type { ActivityPoint, StatItem } from '../types/dashboard';
+import type { DashboardOverviewData } from '../types/multiAgent';
 
-interface LayoutContext {
-  health: HealthCheckResult;
-  runHealthCheck: () => Promise<void>;
-  isRefreshing: boolean;
-}
+export function DashboardPage() {
+  const [overview, setOverview] = useState<DashboardOverviewData | null>(null);
 
-export const DashboardPage: React.FC = () => {
-  const { health, runHealthCheck, isRefreshing } = useOutletContext<LayoutContext>();
+  const fetchOverview = useCallback(() => {
+    getDashboardOverview()
+      .then((data) => {
+        setOverview(data);
+      })
+      .catch(() => {
+        // Keep current dashboard state if offline
+      });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getDashboardOverview()
+      .then((data) => {
+        if (!cancelled) {
+          setOverview(data);
+        }
+      })
+      .catch(() => {
+        // Keep current dashboard state if offline
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const stats: StatItem[] = useMemo(() => {
+    return [
+      {
+        id: 'discovered',
+        label: 'Jobs Discovered',
+        value: overview?.jobs_discovered ?? 0,
+        change: 0,
+        tone: 'orange',
+        icon: Briefcase,
+      },
+      {
+        id: 'matching',
+        label: 'Matching Jobs',
+        value: overview?.matching_jobs ?? 0,
+        change: 0,
+        tone: 'amber',
+        icon: Sparkles,
+      },
+      {
+        id: 'shortlisted',
+        label: 'Shortlisted Jobs',
+        value: overview?.shortlisted_jobs ?? 0,
+        change: 0,
+        tone: 'violet',
+        icon: Layers,
+      },
+      {
+        id: 'applications',
+        label: 'Applications Submitted',
+        value: overview?.applications_submitted ?? 0,
+        change: 0,
+        tone: 'blue',
+        icon: Send,
+      },
+      {
+        id: 'interviews',
+        label: 'Interviews',
+        value: overview?.interviews ?? 0,
+        change: 0,
+        tone: 'green',
+        icon: CalendarCheck,
+      },
+      {
+        id: 'offers',
+        label: 'Offers',
+        value: overview?.offers ?? 0,
+        change: 0,
+        tone: 'green',
+        icon: Award,
+      },
+    ];
+  }, [overview]);
+
+  const activity: ActivityPoint[] = useMemo(() => {
+    if (overview?.activity_series && overview.activity_series.length > 0) {
+      return overview.activity_series.map((pt) => ({
+        date: pt.date,
+        label: pt.day,
+        applications: pt.applications,
+      }));
+    }
+    return [
+      { date: '1', label: 'Mon', applications: 0 },
+      { date: '2', label: 'Tue', applications: 0 },
+      { date: '3', label: 'Wed', applications: 0 },
+      { date: '4', label: 'Thu', applications: 0 },
+      { date: '5', label: 'Fri', applications: 0 },
+      { date: '6', label: 'Sat', applications: 0 },
+      { date: '7', label: 'Sun', applications: 0 },
+    ];
+  }, [overview]);
 
   return (
-    <div className="space-y-6">
-      {/* Hero Welcome Banner */}
-      <div className="relative rounded-2xl border border-indigo-500/20 bg-gradient-to-r from-indigo-950/30 via-slate-900/60 to-slate-900/30 p-6 sm:p-8 overflow-hidden backdrop-blur-xl">
-        <div className="relative z-10 max-w-2xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
-            <Layers className="w-3.5 h-3.5" />
-            <span>Phase 1 Architecture Foundation</span>
-          </div>
-
-          <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
-            Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 via-cyan-400 to-teal-300">JOBHUNTER</span>
-          </h1>
-
-          <p className="text-sm text-slate-300 leading-relaxed">
-            The personal AI-powered job hunting automation platform. Phase 1 establishes the rock-solid full-stack foundation: React 19 + Vite frontend shell, FastAPI asynchronous backend, PostgreSQL database engine with connection pooling, and Docker containerization.
-          </p>
-
-          <div className="pt-2 flex flex-wrap items-center gap-3">
-            <button
-              onClick={runHealthCheck}
-              disabled={isRefreshing}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 shadow-lg shadow-indigo-600/25 transition disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
-              <span>Ping All Systems</span>
-            </button>
-
-            <a
-              href="http://localhost:8000/api/v1/health"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 border border-slate-700/80 transition"
-            >
-              <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-              <span>Direct GET /api/v1/health</span>
-              <ArrowUpRight className="w-3.5 h-3.5 text-slate-400" />
-            </a>
-          </div>
-        </div>
+    <div className="space-y-4">
+      {/* Overall Statistics (6 compact PostgreSQL-backed cards) */}
+      <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+        {stats.map((stat) => (
+          <StatCard key={stat.id} stat={stat} />
+        ))}
       </div>
 
-      {/* Backend & Database Health Cards */}
-      <HealthCard health={health} />
+      {/* Applications Over Time + Central Automation Control */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <ActivityChart data={activity} />
+        </div>
+        <AutomationCard
+          automationState={overview?.automation_state ?? 'ready'}
+          isKillSwitchEngaged={overview?.is_kill_switch_engaged ?? false}
+          approvalMode={overview?.approval_mode ?? 'manual'}
+          activePreferenceCount={overview?.active_preferences_count ?? 0}
+          pausedPreferenceCount={overview?.paused_preferences_count ?? 0}
+          eligiblePreferenceCount={overview?.eligible_preferences_count ?? 0}
+          lastRun={overview?.last_run ?? null}
+          onWorkflowUpdated={fetchOverview}
+        />
+      </div>
 
-      {/* System Telemetry & Live Payload Inspector */}
-      <SystemMetrics health={health} />
+      {/* Preference-Wise Performance Section */}
+      <PreferencePerformance items={overview?.preference_performance ?? []} />
 
-      {/* 8-Phase Architectural Roadmap */}
-      <PhaseRoadmap />
+      {/* Recent Application Updates */}
+      <RecentUpdates updates={overview?.recent_updates ?? []} />
     </div>
   );
-};
+}

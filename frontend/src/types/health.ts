@@ -37,3 +37,4 @@ export interface HealthCheckResult {
   error: string | null;
   lastChecked: Date | null;
 }
+

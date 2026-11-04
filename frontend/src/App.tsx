@@ -1,23 +1,34 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AppLayout } from './components/layout/AppLayout';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { DashboardLayout } from './components/layout/DashboardLayout';
+import { UPDATES_PAGE } from './config/navigation';
+import { ApplicationsPage } from './pages/ApplicationsPage';
+import { AutomationPage } from './pages/AutomationPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { SettingsPage } from './pages/SettingsPage';
+import { JobsDiscoveryPage } from './pages/JobsDiscoveryPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { PreferencesPage } from './pages/PreferencesPage';
+import { ResumesPage } from './pages/ResumesPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { UpdatesPage } from './pages/UpdatesPage';
 
-export const App: React.FC = () => {
+export function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<AppLayout />}>
+        <Route element={<DashboardLayout />}>
           <Route index element={<DashboardPage />} />
-          <Route path="settings" element={<SettingsPage />} />
-          <Route path="404" element={<NotFoundPage />} />
-          <Route path="*" element={<Navigate to="/404" replace />} />
+          <Route path="/preferences" element={<PreferencesPage />} />
+          <Route path="/resume" element={<ResumesPage />} />
+          <Route path="/jobs" element={<JobsDiscoveryPage />} />
+          <Route path="/applications" element={<ApplicationsPage />} />
+          <Route path="/automation" element={<AutomationPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path={UPDATES_PAGE.path} element={<UpdatesPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
       </Routes>
     </BrowserRouter>
   );
-};
+}
 
 export default App;
