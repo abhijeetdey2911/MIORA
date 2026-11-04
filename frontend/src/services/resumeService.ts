@@ -10,10 +10,8 @@ import type {
   SuggestionStatus,
 } from '../types/resume';
 
-const BACKEND_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(
-  /\/+$/,
-  '',
-);
+const RAW_URL = import.meta.env.VITE_API_URL;
+const BACKEND_BASE_URL = typeof RAW_URL === 'string' ? RAW_URL.replace(/\/+$/, '') : '';
 const RESUMES_API_URL = `${BACKEND_BASE_URL}/api/v1/resumes`;
 
 interface BackendErrorDetail {
@@ -65,7 +63,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
     });
   } catch {
     throw new Error(
-      'Unable to reach the JobHunter backend server. Please verify the backend is running on port 8000.',
+      'Unable to reach the JobHunter backend server. Please verify the service is running.',
     );
   }
 
@@ -141,7 +139,7 @@ export function uploadResume({
     xhr.onerror = () => {
       reject(
         new Error(
-          'Network error while uploading resume. Please verify the backend is running on port 8000.',
+          'Network error while uploading resume. Please verify the backend service is running.',
         ),
       );
     };

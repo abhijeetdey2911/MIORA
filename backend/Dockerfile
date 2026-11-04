@@ -23,8 +23,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy backend application source and migrations
 COPY . /app
 
-# Create a dedicated non-root user for security
-RUN adduser --disabled-password --gecos "" appuser && \
+# Create dedicated storage directory and non-root user
+RUN mkdir -p /app/storage/resumes && \
+    adduser --disabled-password --gecos "" appuser && \
     chown -R appuser:appuser /app
 USER appuser
 

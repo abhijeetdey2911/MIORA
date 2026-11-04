@@ -12,9 +12,8 @@ import type {
   WorkflowRunSummary,
 } from '../types/multiAgent';
 
-const BACKEND_BASE_URL = (
-  import.meta.env.VITE_API_URL || 'http://localhost:8000'
-).replace(/\/+$/, '');
+const RAW_URL = import.meta.env.VITE_API_URL;
+const BACKEND_BASE_URL = typeof RAW_URL === 'string' ? RAW_URL.replace(/\/+$/, '') : '';
 
 const ORCHESTRATION_API = `${BACKEND_BASE_URL}/api/v1/orchestration`;
 const JOBS_API = `${BACKEND_BASE_URL}/api/v1/jobs`;

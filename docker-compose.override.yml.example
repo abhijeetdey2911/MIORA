@@ -1,0 +1,28 @@
+# ==============================================================================
+# Local Development Override Example
+# To expose database, redis or backend ports directly on localhost during
+# local container development, copy this file to docker-compose.override.yml:
+#
+# cp docker-compose.override.yml.example docker-compose.override.yml
+# ==============================================================================
+
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  backend:
+    ports:
+      - "8000:8000"
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+
+  frontend:
+    ports:
+      - "5173:80"
+

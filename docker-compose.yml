@@ -1,113 +1,209 @@
 services:
-  # Database Service: PostgreSQL 16
+  # Database Service: PostgreSQL 16 (Tuned for 2 GB RAM host)
   db:
     image: postgres:16-alpine
-    container_name: jobhunter-db
+    container_name: miora-db
     restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=32MB
+      -c effective_cache_size=256MB
+      -c max_connections=50
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-jobhunter}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
-    ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      POSTGRES_DB: ${POSTGRES_DB:-miora}
+      POSTGRES_USER: ${POSTGRES_USER:-miora_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    # Intentionally no published ports on host - only accessible within Docker network
+    expose:
+      - "5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-jobhunter}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-miora_user} -d ${POSTGRES_DB:-miora}"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 10s
+    deploy:
+      resources:
+        limits:
+          memory: 350M
     networks:
-      - jobhunter-network
+      - miora-network
+
+  # Redis In-Memory Cache & Message Broker (Tuned with memory ceiling)
+  redis:
+    image: redis:7-alpine
+    container_name: miora-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 96mb --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    # Intentionally no published ports on host - only accessible within Docker network
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          memory: 120M
+    networks:
+      - miora-network
 
   # Backend API Service: FastAPI + SQLAlchemy + Uvicorn
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: jobhunter-backend
+    container_name: miora-backend
     restart: unless-stopped
     environment:
-      PROJECT_NAME: ${PROJECT_NAME:-Project JobHunter}
+      PROJECT_NAME: ${PROJECT_NAME:-MIORA}
       VERSION: ${VERSION:-0.1.0}
-      ENVIRONMENT: ${ENVIRONMENT:-development}
-      DEBUG: ${DEBUG:-true}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
       API_V1_STR: ${API_V1_STR:-/api/v1}
       HOST: 0.0.0.0
       PORT: 8000
       POSTGRES_SERVER: db
       POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
-      POSTGRES_DB: ${POSTGRES_DB:-jobhunter}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174,http://localhost:3000,http://localhost}
+      POSTGRES_USER: ${POSTGRES_USER:-miora_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-miora}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
-    ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      # Storage configuration (survives container recreation)
+      STORAGE_BACKEND: local
+      RESUME_STORAGE_DIR: /app/storage/resumes
+      # AI Provider configuration
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_KEY: ${AI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-45.0}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      # Telegram Notification Configuration
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_NOTIFICATIONS_ENABLED: ${TELEGRAM_NOTIFICATIONS_ENABLED:-false}
+      # Automation Control & Safety Limits
+      DEFAULT_MAX_JOBS_PER_RUN: ${DEFAULT_MAX_JOBS_PER_RUN:-50}
+      DEFAULT_MAX_APPLICATIONS_PER_RUN: ${DEFAULT_MAX_APPLICATIONS_PER_RUN:-10}
+      DEFAULT_MAX_APPLICATIONS_PER_DAY: ${DEFAULT_MAX_APPLICATIONS_PER_DAY:-25}
+      DEFAULT_MAX_RUNTIME_SECONDS: ${DEFAULT_MAX_RUNTIME_SECONDS:-1800}
+      DEFAULT_MAX_API_SPEND_USD: ${DEFAULT_MAX_API_SPEND_USD:-5.0}
+      DEFAULT_MIN_MATCH_SCORE: ${DEFAULT_MIN_MATCH_SCORE:-70}
+      DEFAULT_RETRY_LIMIT: ${DEFAULT_RETRY_LIMIT:-2}
+      DEFAULT_APPROVAL_MODE: ${DEFAULT_APPROVAL_MODE:-manual}
+      PLAYWRIGHT_ENABLED: ${PLAYWRIGHT_ENABLED:-false}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+    volumes:
+      - resume_storage:/app/storage/resumes
+    # Intentionally no published ports on host - reverse-proxied by Nginx
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 500M
     networks:
-      - jobhunter-network
+      - miora-network
 
-  # Redis In-Memory Cache & Message Broker
-  redis:
-    image: redis:7-alpine
-    container_name: jobhunter-redis
-    restart: unless-stopped
-    ports:
-      - "${REDIS_PORT:-6379}:6379"
-    volumes:
-      - redis_data:/data
-    networks:
-      - jobhunter-network
-
-  # Celery Background Worker Service
+  # Celery Background Worker Service (Single concurrency for 2 GB RAM server)
   worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    container_name: jobhunter-celery-worker
+    container_name: miora-celery-worker
     restart: unless-stopped
-    command: celery -A app.services.celery_app.celery_app worker --loglevel=info
+    command: celery -A app.services.celery_app.celery_app worker --loglevel=info --concurrency=1 --max-tasks-per-child=50
     environment:
+      PROJECT_NAME: ${PROJECT_NAME:-MIORA}
+      VERSION: ${VERSION:-0.1.0}
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DEBUG: ${DEBUG:-false}
       POSTGRES_SERVER: db
       POSTGRES_PORT: 5432
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres_secure_password}
-      POSTGRES_DB: ${POSTGRES_DB:-jobhunter}
+      POSTGRES_USER: ${POSTGRES_USER:-miora_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-miora}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/0}
+      STORAGE_BACKEND: local
+      RESUME_STORAGE_DIR: /app/storage/resumes
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_KEY: ${AI_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-45.0}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+      TELEGRAM_NOTIFICATIONS_ENABLED: ${TELEGRAM_NOTIFICATIONS_ENABLED:-false}
+      DEFAULT_MAX_JOBS_PER_RUN: ${DEFAULT_MAX_JOBS_PER_RUN:-50}
+      DEFAULT_MAX_APPLICATIONS_PER_RUN: ${DEFAULT_MAX_APPLICATIONS_PER_RUN:-10}
+      DEFAULT_MAX_APPLICATIONS_PER_DAY: ${DEFAULT_MAX_APPLICATIONS_PER_DAY:-25}
+      DEFAULT_MAX_RUNTIME_SECONDS: ${DEFAULT_MAX_RUNTIME_SECONDS:-1800}
+      DEFAULT_MAX_API_SPEND_USD: ${DEFAULT_MAX_API_SPEND_USD:-5.0}
+      DEFAULT_MIN_MATCH_SCORE: ${DEFAULT_MIN_MATCH_SCORE:-70}
+      DEFAULT_RETRY_LIMIT: ${DEFAULT_RETRY_LIMIT:-2}
+      DEFAULT_APPROVAL_MODE: ${DEFAULT_APPROVAL_MODE:-manual}
+      PLAYWRIGHT_ENABLED: ${PLAYWRIGHT_ENABLED:-false}
+      PLAYWRIGHT_HEADLESS: ${PLAYWRIGHT_HEADLESS:-true}
+    volumes:
+      - resume_storage:/app/storage/resumes
     depends_on:
       db:
         condition: service_healthy
       redis:
-        condition: service_started
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 600M
     networks:
-      - jobhunter-network
+      - miora-network
 
-  # Frontend Web Client: React + Vite + Tailwind + Nginx
+  # Frontend Web Client: React + Vite + Tailwind + Nginx (Sole public entry point)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: jobhunter-frontend
+      args:
+        VITE_API_URL: ""
+    container_name: miora-frontend
     restart: unless-stopped
     ports:
-      - "${FRONTEND_PORT:-5173}:80"
+      - "${FRONTEND_PORT:-80}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -117,17 +213,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 5s
+    deploy:
+      resources:
+        limits:
+          memory: 100M
     networks:
-      - jobhunter-network
+      - miora-network
 
 volumes:
   postgres_data:
-    name: jobhunter_postgres_data
+    name: miora_postgres_data
   redis_data:
-    name: jobhunter_redis_data
+    name: miora_redis_data
+  resume_storage:
+    name: miora_resume_storage
 
 networks:
-  jobhunter-network:
-    name: jobhunter_network
+  miora-network:
+    name: miora_network
     driver: bridge
-

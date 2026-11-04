@@ -1,15 +1,21 @@
 import type { HealthCheckResult, HealthResponse } from '../types/health';
 
-const BACKEND_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const RAW_URL = import.meta.env.VITE_API_URL;
+const BACKEND_BASE_URL = typeof RAW_URL === 'string' ? RAW_URL.replace(/\/+$/, '') : '';
 
 export async function checkBackendHealth(): Promise<HealthCheckResult> {
   const startTime = performance.now();
-  const endpoints = [
-    `${BACKEND_BASE_URL}/api/v1/health`,
-    '/api/v1/health',
-    `${BACKEND_BASE_URL}/health`,
-    '/health',
-  ];
+  const endpoints = BACKEND_BASE_URL
+    ? [
+        `${BACKEND_BASE_URL}/api/v1/health`,
+        '/api/v1/health',
+        `${BACKEND_BASE_URL}/health`,
+        '/health',
+      ]
+    : [
+        '/api/v1/health',
+        '/health',
+      ];
 
   for (const url of endpoints) {
     try {
@@ -55,7 +61,7 @@ export async function checkBackendHealth(): Promise<HealthCheckResult> {
     state: 'offline',
     data: null,
     latencyMs,
-    error: 'Backend unreachable. Verify server is running on port 8000.',
+    error: 'Backend unreachable. Verify the backend service is running.',
     lastChecked: new Date(),
   };
 }
