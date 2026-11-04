@@ -16,8 +16,10 @@ Features:
 - Genuine kill switch (`stop`), pause, runtime limit, and API spend limit enforcement at every node boundary.
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 import uuid
 
 from langgraph.graph import END, START, StateGraph
@@ -80,6 +82,9 @@ class PreferenceWorkflowState(TypedDict, total=False):
     halted_status: Optional[str]
     halt_reason: Optional[str]
     error_message: Optional[str]
+
+
+TupleStatusAndReason = Tuple[Optional[str], Optional[str]]
 
 
 class CentralOrchestrator:
@@ -933,5 +938,4 @@ class CentralOrchestrator:
         return recovered
 
 
-TupleStatusAndReason = tuple[Optional[str], Optional[str]]
 central_orchestrator = CentralOrchestrator()
