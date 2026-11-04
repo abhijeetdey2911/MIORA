@@ -76,9 +76,13 @@ class Settings(BaseSettings):
     GROQ_API_KEY: Optional[str] = None
     ANTHROPIC_API_KEY: Optional[str] = None
     AI_MODEL: str = "gpt-4o-mini"
+    AI_FALLBACK_MODEL: Optional[str] = None
+    GEMINI_FALLBACK_MODEL: Optional[str] = "gemini-1.5-flash"
+    OPENAI_FALLBACK_MODEL: Optional[str] = None
     AI_BASE_URL: Optional[str] = None
-    AI_TIMEOUT_SECONDS: float = 45.0
-    AI_MAX_RETRIES: int = 2
+    AI_TIMEOUT_SECONDS: float = 150.0
+    AI_MAX_RETRIES: int = 3
+    AI_INITIAL_BACKOFF_SECONDS: float = 1.0
 
     # Multi-Agent Background Execution (Celery & Redis)
     REDIS_URL: str = "redis://127.0.0.1:6379/0"
@@ -131,6 +135,34 @@ class Settings(BaseSettings):
             if key is not None:
                 cleaned = key.strip()
                 if cleaned and cleaned.lower() not in placeholders:
+                    return cleaned
+        return None
+
+    def get_effective_fallback_model(self) -> Optional[str]:
+        """Return the configured fallback model for the active AI provider, if different from primary."""
+        primary = (self.AI_MODEL or "").strip()
+        candidates: List[Optional[str]] = []
+
+        if self.AI_FALLBACK_MODEL:
+            candidates.append(self.AI_FALLBACK_MODEL)
+
+        provider = (self.AI_PROVIDER or "").lower().strip()
+        if provider == "gemini":
+            candidates.append(self.GEMINI_FALLBACK_MODEL)
+            # Default to gemini-1.5-flash if primary is gemini-2.5-flash or gemini-2.0-flash
+            if primary in ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-pro"):
+                candidates.append("gemini-1.5-flash")
+            elif primary == "gemini-1.5-flash":
+                candidates.append("gemini-2.0-flash")
+        elif provider == "openai":
+            candidates.append(self.OPENAI_FALLBACK_MODEL)
+            if primary == "gpt-4o":
+                candidates.append("gpt-4o-mini")
+
+        for cand in candidates:
+            if cand:
+                cleaned = cand.strip()
+                if cleaned and cleaned != primary:
                     return cleaned
         return None
 

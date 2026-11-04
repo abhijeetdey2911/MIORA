@@ -262,6 +262,7 @@ class AIProviderStatusResponse(BaseModel):
     configured: bool
     provider: str
     model: str
+    fallback_model: Optional[str] = None
     setup_message: Optional[str] = None
 
 

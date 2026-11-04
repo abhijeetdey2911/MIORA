@@ -157,10 +157,11 @@ class ResumeIntelligenceService:
                 db.delete(old)
             db.flush()
 
+            model_used = getattr(ai_payload, "_model_used", ai_client.model)
             analysis = ResumeAnalysis(
                 resume_id=resume.id,
                 provider=ai_client.provider,
-                model_name=ai_client.model,
+                model_name=model_used,
                 candidate_profile=ai_payload.candidate_profile.model_dump(),
                 education=[item.model_dump() for item in ai_payload.education],
                 technical_skills=ai_payload.technical_skills,

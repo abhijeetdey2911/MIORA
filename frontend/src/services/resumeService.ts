@@ -32,11 +32,20 @@ function extractErrorMessageFromBody(body: BackendErrorBody, status: number): st
     const first = validationList[0];
     return (first.msg ?? 'Invalid input').replace(/^Value error,\s*/i, '');
   }
+  if (typeof body.detail === 'string' && body.detail) {
+    return body.detail;
+  }
   if (typeof body.message === 'string' && body.message) {
     return body.message;
   }
-  if (typeof body.detail === 'string' && body.detail) {
-    return body.detail;
+  if (status === 503) {
+    return 'The AI service is temporarily experiencing high demand or rate limits. Retries were attempted automatically. Please wait a moment and try again.';
+  }
+  if (status === 429) {
+    return 'The AI provider rate limit was reached (HTTP 429). Please wait a moment and try again.';
+  }
+  if (status === 504) {
+    return 'The AI request timed out. Please try again in a few moments.';
   }
   return `Request failed with status ${status}`;
 }

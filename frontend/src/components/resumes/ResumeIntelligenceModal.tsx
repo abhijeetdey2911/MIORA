@@ -550,7 +550,30 @@ export function ResumeIntelligenceModal({
             >
               <div className="flex items-start gap-2">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                <span>{errorBanner}</span>
+                <div className="flex flex-col gap-1.5">
+                  <span className="font-medium">{errorBanner}</span>
+                  {(errorBanner.toLowerCase().includes('high demand') ||
+                    errorBanner.toLowerCase().includes('temporarily') ||
+                    errorBanner.toLowerCase().includes('503') ||
+                    errorBanner.toLowerCase().includes('rate limit') ||
+                    errorBanner.toLowerCase().includes('timeout') ||
+                    errorBanner.toLowerCase().includes('504')) && (
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                        💡 Tip: The model experienced peak traffic. Automatic retries and fallbacks were attempted.
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isAnalysing}
+                        onClick={() => void handleRunAnalysis()}
+                        className="inline-flex items-center gap-1 rounded-lg bg-rose-600/20 px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-600/30 dark:bg-rose-400/20 dark:text-rose-200"
+                      >
+                        <RefreshCw className="h-3 w-3" />
+                        Retry Analysis
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 type="button"

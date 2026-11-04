@@ -92,9 +92,11 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-1.5-flash}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-45.0}
-      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-3}
       # Telegram Notification Configuration
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
@@ -121,7 +123,7 @@ services:
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://127.0.0.1:8000/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3
@@ -163,9 +165,11 @@ services:
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_FALLBACK_MODEL: ${AI_FALLBACK_MODEL:-}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-1.5-flash}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-45.0}
-      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-2}
+      AI_MAX_RETRIES: ${AI_MAX_RETRIES:-3}
       TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
       TELEGRAM_NOTIFICATIONS_ENABLED: ${TELEGRAM_NOTIFICATIONS_ENABLED:-false}
@@ -186,6 +190,12 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import socket; s=socket.create_connection((\"redis\", 6379), timeout=3); exit(0)' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:
@@ -208,7 +218,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost/nginx-health || exit 1"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/nginx-health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 3

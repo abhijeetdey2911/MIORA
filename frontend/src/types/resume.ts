@@ -55,6 +55,7 @@ export interface AIProviderStatus {
   configured: boolean;
   provider: string;
   model: string;
+  fallback_model?: string | null;
   setup_message: string | null;
 }
 

@@ -25,9 +25,9 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 
 EXPOSE 80
 
-# Health check
+# Health check (use 127.0.0.1 to prevent IPv6 ::1 localhost resolution mismatches)
 HEALTHCHECK --interval=15s --timeout=5s --start-period=5s --retries=3 \
-    CMD wget -qO- http://localhost/nginx-health || exit 1
+    CMD wget -qO- http://127.0.0.1/nginx-health || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]
 
