@@ -239,16 +239,15 @@ def approve_application(
 ) -> ApplicationResponse:
     req = payload or ApprovalActionPayload()
     try:
-        confirm_sub = req.confirm_submission
-        if confirm_sub is None and req.auto_submit:
-            confirm_sub = True
-
+        # Server-side safety enforcement: manual approval strictly transitions to 'Approved'
+        # and stops there. It NEVER triggers external submission automatically, even if
+        # auto_submit=True or confirm_submission=True is passed in the request body.
         updated = agent4_execution.approve_and_execute_application(
             db=db,
             application_id=application_id,
             approved_by_user=req.approved_by_user,
-            confirm_submission=confirm_sub,
-            confirmation_evidence=req.confirmation_evidence,
+            confirm_submission=None,
+            confirmation_evidence=None,
             notes=req.notes,
         )
         return _serialize_application(db, updated)

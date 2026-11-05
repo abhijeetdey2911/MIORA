@@ -385,37 +385,66 @@ def test_complete_multi_agent_workflow_and_cross_preference_isolation():
         assert a["status"] == "Awaiting Approval"
         assert a["approval_required"] is True
 
-    # Approve first application with confirmation receipt -> status becomes "Submitted"
+    # Step 1: User explicitly approves first application (transitions to 'Approved', never 'Submitted')
     app_1 = apps[0]
     approve_res = client.post(
         f"/api/v1/applications/{app_1['id']}/approve",
         json={
             "approved_by_user": True,
-            "confirm_submission": True,
+            "confirm_submission": True,  # Server-side safety: auto_submit / confirm_submission ignored
             "confirmation_evidence": "GH-CONFIRM-998811",
-            "notes": "Submitted via Greenhouse official portal.",
+            "notes": "Approved for submission.",
         },
     )
     assert approve_res.status_code == 200
     approved_app = approve_res.json()
-    assert approved_app["status"] == "Submitted"
-    assert approved_app["confirmation_evidence"] == "GH-CONFIRM-998811"
-    assert approved_app["follow_up_reminder_at"] is not None
+    assert approved_app["status"] == "Approved"
+    assert approved_app["approved_by_user"] is True
+    assert approved_app["approval_reference"].startswith("USER-APPROVAL-REC-")
+    assert approved_app["applied_at"] is None
+    assert approved_app["confirmation_evidence"] is None
 
-    # Attempting to approve/submit an already Submitted application must be blocked
+    # Step 2: Explicit submission call submits the application with verified external evidence
+    submit_res = client.post(
+        f"/api/v1/applications/{app_1['id']}/submit",
+        json={
+            "explicit_confirmation_evidence": "GH-CONFIRM-998811",
+            "notes": "Submitted via Greenhouse official portal.",
+        },
+    )
+    assert submit_res.status_code == 200
+    submitted_app = submit_res.json()
+    assert submitted_app["status"] == "Submitted"
+    assert submitted_app["confirmation_evidence"] == "GH-CONFIRM-998811"
+    assert submitted_app["follow_up_reminder_at"] is not None
+
+    # Attempting to approve or re-submit an already Submitted application must be blocked
     dup_approve = client.post(
         f"/api/v1/applications/{app_1['id']}/approve",
-        json={"approved_by_user": True, "confirm_submission": True},
+        json={"approved_by_user": True},
     )
     assert dup_approve.status_code == 400
 
-    # Approve second application with uncertain confirmation -> status becomes "Submission Unconfirmed"
+    dup_submit = client.post(
+        f"/api/v1/applications/{app_1['id']}/submit",
+        json={"explicit_confirmation_evidence": "GH-CONFIRM-998811"},
+    )
+    assert dup_submit.status_code == 400
+
+    # Approve second application -> strictly transitions to "Approved"
     app_2 = apps[1]
-    unconfirmed_res = client.post(
+    approve_res2 = client.post(
         f"/api/v1/applications/{app_2['id']}/approve",
+        json={"approved_by_user": True, "notes": "Approved for submission."},
+    )
+    assert approve_res2.status_code == 200
+    assert approve_res2.json()["status"] == "Approved"
+
+    # Submit second application with uncertain confirmation -> status becomes "Submission Unconfirmed"
+    unconfirmed_res = client.post(
+        f"/api/v1/applications/{app_2['id']}/submit",
         json={
-            "approved_by_user": True,
-            "confirm_submission": False,
+            "simulate_uncertain": True,
             "notes": "Browser tab closed before receipt page loaded.",
         },
     )
@@ -424,8 +453,8 @@ def test_complete_multi_agent_workflow_and_cross_preference_isolation():
 
     # Retrying an application in "Submission Unconfirmed" without reconciliation must be blocked
     retry_blocked = client.post(
-        f"/api/v1/applications/{app_2['id']}/approve",
-        json={"approved_by_user": True, "confirm_submission": True},
+        f"/api/v1/applications/{app_2['id']}/submit",
+        json={"explicit_confirmation_evidence": "GH-CONFIRM-2233"},
     )
     assert retry_blocked.status_code == 400
 

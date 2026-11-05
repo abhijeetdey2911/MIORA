@@ -87,3 +87,4 @@ def downgrade() -> None:
     op.drop_column('applications', 'external_application_id')
     op.drop_column('applications', 'submission_attempted_at')
     op.drop_column('applications', 'approval_reference')
+

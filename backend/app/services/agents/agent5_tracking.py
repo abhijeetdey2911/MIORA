@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.models.multi_agent import Application, ApplicationStatusHistory
 from app.models.orchestration import JobHuntRun, PreferenceExecution
+from app.services.agents.agent4_execution import is_synthetic_or_internal_evidence
 from app.services.telegram_service import telegram_service
 
 VALID_APPLICATION_STATUSES = (
@@ -171,10 +172,10 @@ class ApplicationTrackingAgent:
                     "Cannot mark application as 'Submitted' without confirmation evidence. "
                     "Use 'Submission Unconfirmed' when confirmation receipt is unavailable."
                 )
-            if active_evidence.startswith("USER-APPROVED-RECEIPT") or active_evidence.startswith("USER-APPROVAL"):
+            if is_synthetic_or_internal_evidence(active_evidence):
                 raise ValueError(
-                    "Internal user approval reference cannot be used as external confirmation evidence. "
-                    "Genuine employer confirmation receipt is required."
+                    f"Forbidden synthetic or internal confirmation evidence: '{active_evidence}'. "
+                    "Genuine external employer confirmation receipt is required."
                 )
 
         if new_status == "Approved":
@@ -311,9 +312,9 @@ class ApplicationTrackingAgent:
                 raise ValueError(
                     "Reconciling to 'Submitted' requires confirmation_evidence (e.g. email or portal receipt)."
                 )
-            if confirmation_evidence.startswith("USER-APPROVED-RECEIPT") or confirmation_evidence.startswith("USER-APPROVAL"):
+            if is_synthetic_or_internal_evidence(confirmation_evidence):
                 raise ValueError(
-                    "Internal user approval reference cannot be used as external confirmation evidence. "
+                    f"Forbidden synthetic or internal confirmation evidence: '{confirmation_evidence}'. "
                     "A genuine external employer or portal confirmation receipt is required."
                 )
 

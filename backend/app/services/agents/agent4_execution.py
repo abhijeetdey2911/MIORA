@@ -69,6 +69,44 @@ class SubagentExecutionResult:
         self.notes = notes
 
 
+FORBIDDEN_SYNTHETIC_PREFIXES: Tuple[str, ...] = (
+    "PORTAL-RECEIPT",
+    "FORM-CONFIRM",
+    "EMAIL-MSG-ID",
+    "OUTREACH-ID",
+    "EXT-PORTAL",
+    "EXT-FORM",
+    "EXT-EMAIL",
+    "EXT-OUTREACH",
+    "USER-APPROVED-RECEIPT",
+    "USER-APPROVAL",
+)
+
+
+def is_synthetic_or_internal_evidence(evidence: Optional[str]) -> bool:
+    """Return True if evidence is missing, blank, or matches forbidden synthetic/internal receipts.
+
+    Rejects fabricated or locally hashed tokens:
+    - PORTAL-RECEIPT-...
+    - FORM-CONFIRM-...
+    - EMAIL-MSG-ID-...
+    - OUTREACH-ID-...
+    - EXT-PORTAL-...
+    - EXT-FORM-...
+    - EXT-EMAIL-...
+    - EXT-OUTREACH-...
+    - USER-APPROVED-RECEIPT-...
+    - USER-APPROVAL-...
+    """
+    if not evidence or not isinstance(evidence, str):
+        return True
+    trimmed = evidence.strip().upper()
+    for prefix in FORBIDDEN_SYNTHETIC_PREFIXES:
+        if trimmed.startswith(prefix.upper()):
+            return True
+    return False
+
+
 class OfficialCompanyPortalHandler:
     """Subagent 4.1: Prepares and (when authorised & permitted) executes official portal applications."""
 
@@ -133,41 +171,32 @@ class OfficialCompanyPortalHandler:
             )
 
         if explicit_confirmation_evidence:
-            ext_id = explicit_application_id or f"EXT-PORTAL-{hashlib.sha256(explicit_confirmation_evidence.encode('utf-8')).hexdigest()[:8].upper()}"
+            if is_synthetic_or_internal_evidence(explicit_confirmation_evidence):
+                raise ValueError(
+                    f"Forbidden synthetic or internal confirmation evidence: '{explicit_confirmation_evidence}'. "
+                    "Actual employer ATS application ID or verified portal confirmation response is required."
+                )
             return SubagentExecutionResult(
                 status="Submitted",
                 prepared_payload=package,
-                confirmation_evidence=explicit_confirmation_evidence,
-                external_application_id=ext_id,
+                confirmation_evidence=explicit_confirmation_evidence.strip(),
+                external_application_id=explicit_application_id.strip() if explicit_application_id else None,
                 submission_result="success",
                 notes="Application submitted via official company portal with verified confirmation receipt.",
             )
 
-        settings = get_settings()
-        if not settings.PLAYWRIGHT_ENABLED:
-            # Without live browser confirmation or explicit receipt, never falsely mark as Submitted
-            return SubagentExecutionResult(
-                status="Submission Unconfirmed",
-                prepared_payload=package,
-                confirmation_evidence=None,
-                submission_result="unconfirmed",
-                notes=(
-                    "Automated portal submission initiated without Playwright receipt verification; "
-                    "marked as Submission Unconfirmed pending confirmation receipt."
-                ),
-            )
-
-        receipt = (
-            f"PORTAL-RECEIPT-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
-        )
-        ext_id = explicit_application_id or f"EXT-PORTAL-{hashlib.sha256(receipt.encode('utf-8')).hexdigest()[:8].upper()}"
+        # Official company portal: Package preparation is NOT submission.
+        # If automated browser submission is not connected or confirmed, do not claim submission.
         return SubagentExecutionResult(
-            status="Submitted",
+            status="Submission Unconfirmed",
             prepared_payload=package,
-            confirmation_evidence=receipt,
-            external_application_id=ext_id,
-            submission_result="success",
-            notes=f"Official portal submission confirmed ({receipt}).",
+            confirmation_evidence=None,
+            submission_result="unconfirmed",
+            notes=(
+                "Portal application package prepared. Automated ATS browser submission is not connected or "
+                "did not receive a verified employer confirmation receipt. "
+                "Marked as Submission Unconfirmed until external confirmation receipt is recorded."
+            ),
         )
 
 
@@ -228,17 +257,31 @@ class OfficialApplicationFormHandler:
                 notes="Official form submission did not return a deterministic HTTP confirmation token.",
             )
 
-        evidence = explicit_confirmation_evidence or (
-            f"FORM-CONFIRM-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
-        )
-        ext_id = explicit_application_id or f"EXT-FORM-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
+        if explicit_confirmation_evidence:
+            if is_synthetic_or_internal_evidence(explicit_confirmation_evidence):
+                raise ValueError(
+                    f"Forbidden synthetic or internal confirmation evidence: '{explicit_confirmation_evidence}'. "
+                    "Actual verified external form confirmation token is required."
+                )
+            return SubagentExecutionResult(
+                status="Submitted",
+                prepared_payload=package,
+                confirmation_evidence=explicit_confirmation_evidence.strip(),
+                external_application_id=explicit_application_id.strip() if explicit_application_id else None,
+                submission_result="success",
+                notes=f"Official application form submitted with verified external token ({explicit_confirmation_evidence.strip()}).",
+            )
+
+        # Official application form: Preparing form data is NOT submitting a form.
         return SubagentExecutionResult(
-            status="Submitted",
+            status="Submission Unconfirmed",
             prepared_payload=package,
-            confirmation_evidence=evidence,
-            external_application_id=ext_id,
-            submission_result="success",
-            notes=f"Official application form submitted with confirmation token ({evidence}).",
+            confirmation_evidence=None,
+            submission_result="unconfirmed",
+            notes=(
+                "Official application form payload prepared. Automated form submission is not connected or "
+                "did not receive an external confirmation token. Preparing form data is not submitting a form."
+            ),
         )
 
 
@@ -300,17 +343,31 @@ class PublishedHREmailHandler:
                 notes="Published HR email dispatch status uncertain; awaiting SMTP delivery receipt.",
             )
 
-        evidence = explicit_confirmation_evidence or (
-            f"EMAIL-MSG-ID-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
-        )
-        ext_id = explicit_application_id or f"EXT-EMAIL-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
+        if explicit_confirmation_evidence:
+            if is_synthetic_or_internal_evidence(explicit_confirmation_evidence):
+                raise ValueError(
+                    f"Forbidden synthetic or internal confirmation evidence: '{explicit_confirmation_evidence}'. "
+                    "Genuine email provider message ID from a successful dispatch is required."
+                )
+            return SubagentExecutionResult(
+                status="Submitted",
+                prepared_payload=package,
+                confirmation_evidence=explicit_confirmation_evidence.strip(),
+                external_application_id=explicit_application_id.strip() if explicit_application_id else None,
+                submission_result="success",
+                notes=f"Published HR application email dispatched with verified provider message ID ({explicit_confirmation_evidence.strip()}).",
+            )
+
+        # Published HR email: Preparing an email draft is NOT sending an email.
         return SubagentExecutionResult(
-            status="Submitted",
+            status="Submission Unconfirmed",
             prepared_payload=package,
-            confirmation_evidence=evidence,
-            external_application_id=ext_id,
-            submission_result="success",
-            notes=f"Published HR application email dispatched ({evidence}).",
+            confirmation_evidence=None,
+            submission_result="unconfirmed",
+            notes=(
+                "Tailored HR email draft prepared. Automated SMTP dispatch is not connected or "
+                "did not return a verified email provider message ID. Preparing an email draft is not sending an email."
+            ),
         )
 
 
@@ -368,17 +425,31 @@ class AuthorisedRecruiterOutreachHandler:
                 notes="Recruiter outreach delivery unconfirmed; marked for manual reconciliation.",
             )
 
-        evidence = explicit_confirmation_evidence or (
-            f"OUTREACH-ID-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
-        )
-        ext_id = explicit_application_id or f"EXT-OUTREACH-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
+        if explicit_confirmation_evidence:
+            if is_synthetic_or_internal_evidence(explicit_confirmation_evidence):
+                raise ValueError(
+                    f"Forbidden synthetic or internal confirmation evidence: '{explicit_confirmation_evidence}'. "
+                    "Verified recruiter communication delivery receipt is required."
+                )
+            return SubagentExecutionResult(
+                status="Submitted",
+                prepared_payload=package,
+                confirmation_evidence=explicit_confirmation_evidence.strip(),
+                external_application_id=explicit_application_id.strip() if explicit_application_id else None,
+                submission_result="success",
+                notes=f"Authorised recruiter outreach delivered with verified delivery receipt ({explicit_confirmation_evidence.strip()}).",
+            )
+
+        # Recruiter outreach: Preparing an outreach note is NOT delivering a message.
         return SubagentExecutionResult(
-            status="Submitted",
+            status="Submission Unconfirmed",
             prepared_payload=package,
-            confirmation_evidence=evidence,
-            external_application_id=ext_id,
-            submission_result="success",
-            notes=f"Authorised recruiter outreach recorded ({evidence}).",
+            confirmation_evidence=None,
+            submission_result="unconfirmed",
+            notes=(
+                "Recruiter outreach note prepared. Automated outreach messaging is not connected or "
+                "did not return a verified delivery receipt. Preparing an outreach note is not delivering a message."
+            ),
         )
 
 
@@ -792,14 +863,12 @@ class ApplicationExecutionAgent:
         else:
             raise ValueError("Cannot submit application without an approved resume.")
 
-        # Guard: Internal approval receipts cannot be passed as external confirmation evidence
-        if explicit_confirmation_evidence and (
-            explicit_confirmation_evidence.startswith("USER-APPROVED-RECEIPT")
-            or explicit_confirmation_evidence.startswith("USER-APPROVAL")
-        ):
+        # Guard: Internal approval receipts or synthetic receipts cannot be passed as external confirmation evidence
+        if explicit_confirmation_evidence and is_synthetic_or_internal_evidence(explicit_confirmation_evidence):
             raise ValueError(
-                "Internal user approval reference cannot be used as external confirmation evidence. "
-                "A genuine external employer or portal confirmation receipt is required."
+                f"Forbidden synthetic or internal confirmation evidence: '{explicit_confirmation_evidence}'. "
+                "A genuine external employer ATS application ID, verified portal confirmation response, "
+                "genuine email provider message ID, or recruiter delivery receipt is required."
             )
 
         now = datetime.now(timezone.utc)
@@ -868,6 +937,10 @@ class ApplicationExecutionAgent:
         # Step 3: Evaluate result and transition
         post_progress_status = "Submission In Progress"
         if result.status == "Submitted" and result.confirmation_evidence:
+            if is_synthetic_or_internal_evidence(result.confirmation_evidence):
+                raise ValueError(
+                    f"Forbidden synthetic or internal confirmation evidence returned: '{result.confirmation_evidence}'."
+                )
             app_record.status = "Submitted"
             app_record.applied_at = datetime.now(timezone.utc)
             app_record.confirmation_evidence = result.confirmation_evidence
@@ -980,18 +1053,13 @@ class ApplicationExecutionAgent:
         confirmation_evidence: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> Application:
-        """Handle user approval and optional immediate execution.
+        """Handle user approval review.
 
-        Strict enforcement:
-        - If approved_by_user is False: marks 'Withdrawn'.
-        - If approved_by_user is True:
-          First calls approve_application -> transitions 'Awaiting Approval' to 'Approved'.
-          If confirm_submission is True:
-            calls execute_submission -> transitions 'Approved' -> 'Submission In Progress' -> 'Submitted' (or outcome).
-          If confirm_submission is False:
-            calls execute_submission with simulate_uncertain=True -> transitions 'Approved' -> 'Submission In Progress' -> 'Submission Unconfirmed'.
-          If confirm_submission is None:
-            remains in 'Approved' state awaiting subsequent submission trigger.
+        STRICT SAFETY ENFORCEMENT:
+        Manual user approval CANNOT trigger external submission automatically,
+        even if confirm_submission=True or auto_submit=True is passed by the caller.
+        Manual approval strictly transitions the application to 'Approved' (or 'Withdrawn')
+        and stops there. External submission must be explicitly initiated via execute_submission.
         """
         app_record = db.get(Application, application_id)
         if not app_record:
@@ -1014,26 +1082,8 @@ class ApplicationExecutionAgent:
             db.refresh(app_record)
             return app_record
 
-        # Step 1: Explicit Approval (transitions to Approved)
-        app_record = self.approve_application(db, application_id=application_id, notes=notes)
-
-        # Step 2: Handle submission execution if explicitly requested
-        if confirm_submission is True:
-            app_record = self.execute_submission(
-                db,
-                application_id=application_id,
-                explicit_confirmation_evidence=confirmation_evidence,
-                notes=notes,
-            )
-        elif confirm_submission is False:
-            app_record = self.execute_submission(
-                db,
-                application_id=application_id,
-                simulate_uncertain=True,
-                notes=notes,
-            )
-
-        return app_record
+        # Strictly transitions to Approved and STOPS. Does not trigger execute_submission.
+        return self.approve_application(db, application_id=application_id, notes=notes)
 
 
 agent4_execution = ApplicationExecutionAgent()

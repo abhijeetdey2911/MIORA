@@ -97,8 +97,6 @@ export function ApplicationsPage() {
   const [approvingApp, setApprovingApp] = useState<ApplicationItem | null>(
     null,
   );
-  const [autoSubmitOnApprove, setAutoSubmitOnApprove] =
-    useState<boolean>(false);
   const [approvalNotes, setApprovalNotes] = useState<string>('');
 
   // Submit Modal State (for Approved or Failed applications)
@@ -189,12 +187,10 @@ export function ApplicationsPage() {
     try {
       await approveApplication(approvingApp.id, {
         approved_by_user: true,
-        confirm_submission: autoSubmitOnApprove,
         notes: approvalNotes.trim() || undefined,
       });
       setApprovingApp(null);
       setApprovalNotes('');
-      setAutoSubmitOnApprove(false);
       await loadData();
     } catch (err) {
       setErrorMessage(
@@ -458,7 +454,6 @@ export function ApplicationsPage() {
                                 type="button"
                                 onClick={() => {
                                   setApprovingApp(app);
-                                  setAutoSubmitOnApprove(false);
                                   setApprovalNotes('');
                                 }}
                                 className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[11px] font-semibold text-white hover:brightness-105"
@@ -594,15 +589,6 @@ export function ApplicationsPage() {
                   className="mt-1 w-full rounded-xl border border-line bg-surface-2 px-3 py-2 text-xs text-ink"
                 />
               </div>
-
-              <label className="flex items-center gap-2 font-medium text-ink pt-1">
-                <input
-                  type="checkbox"
-                  checked={autoSubmitOnApprove}
-                  onChange={(e) => setAutoSubmitOnApprove(e.target.checked)}
-                />
-                <span>Also initiate external submission immediately after approval</span>
-              </label>
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
@@ -618,7 +604,7 @@ export function ApplicationsPage() {
                 onClick={handleApproveSubmit}
                 className="rounded-xl bg-accent px-4 py-1.5 text-xs font-semibold text-white"
               >
-                {autoSubmitOnApprove ? 'Approve & Submit Now' : 'Confirm User Approval'}
+                Confirm User Approval
               </button>
             </div>
           </div>

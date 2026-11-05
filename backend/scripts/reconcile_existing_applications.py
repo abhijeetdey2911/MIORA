@@ -34,9 +34,14 @@ logger = logging.getLogger("reconciliation")
 
 
 def reconcile_applications(db: Session) -> int:
-    """Audit and reconcile applications with fabricated internal confirmation receipts."""
+    """Audit and reconcile applications with fabricated internal or synthetic confirmation receipts."""
     stmt = select(Application).where(
         (Application.confirmation_evidence.ilike("USER-APPROVED-RECEIPT%"))
+        | (Application.confirmation_evidence.ilike("PORTAL-RECEIPT%"))
+        | (Application.confirmation_evidence.ilike("FORM-CONFIRM%"))
+        | (Application.confirmation_evidence.ilike("EMAIL-MSG-ID%"))
+        | (Application.confirmation_evidence.ilike("OUTREACH-ID%"))
+        | (Application.confirmation_evidence.ilike("EXT-%"))
         | (
             Application.company.in_(["Finom", "Emma – The Sleep Company"])
             & (Application.status == "Submitted")
@@ -101,3 +106,4 @@ if __name__ == "__main__":
         print(f"Reconciliation completed successfully. Reconciled records: {count}")
     finally:
         db.close()
+

@@ -38,7 +38,15 @@ from app.models.multi_agent import (
 )
 from app.models.resume import Resume
 from app.models.resume_intelligence import ResumeVersion
-from app.services.agents.agent4_execution import ApplicationExecutionAgent
+from app.services.agents.agent4_execution import (
+    ApplicationExecutionAgent,
+    AuthorisedRecruiterOutreachHandler,
+    FORBIDDEN_SYNTHETIC_PREFIXES,
+    OfficialApplicationFormHandler,
+    OfficialCompanyPortalHandler,
+    PublishedHREmailHandler,
+    is_synthetic_or_internal_evidence,
+)
 from app.services.agents.agent5_tracking import ApplicationTrackingAgent
 from app.services.telegram_service import telegram_service
 from scripts.reconcile_existing_applications import reconcile_applications
@@ -334,7 +342,7 @@ def test_03_submitted_cannot_be_set_without_genuine_external_evidence(
         agent5.update_application_status(db_session, app.id, new_status="Submitted", evidence=None)
 
     # Attempt 2: Marking Submitted with an internal user approval receipt must fail
-    with pytest.raises(ValueError, match="Internal user approval reference cannot be used as external confirmation evidence"):
+    with pytest.raises(ValueError, match="Forbidden synthetic or internal confirmation evidence"):
         agent5.update_application_status(
             db_session,
             app.id,
@@ -342,7 +350,7 @@ def test_03_submitted_cannot_be_set_without_genuine_external_evidence(
             evidence="USER-APPROVED-RECEIPT-ABCD1234",
         )
 
-    with pytest.raises(ValueError, match="Internal user approval reference cannot be used as external confirmation evidence"):
+    with pytest.raises(ValueError, match="Forbidden synthetic or internal confirmation evidence"):
         agent5.update_application_status(
             db_session,
             app.id,
@@ -441,7 +449,7 @@ def test_05_external_submission_confirmed_sets_submitted_with_receipt(
     assert app.status == "Approved"
 
     # Step 2: Execute submission with explicit external confirmation receipt
-    external_receipt = "PORTAL-CONFIRM-883921"
+    external_receipt = "ATS-PORTAL-CONF-883921"
     with patch.object(telegram_service, "_send_telegram_http", return_value=(True, None)):
         submitted_app = agent4.execute_submission(
             db=db_session,
@@ -587,12 +595,12 @@ def test_08_failed_application_can_safely_retry_submission(
         retried_app = agent4.execute_submission(
             db=db_session,
             application_id=app.id,
-            explicit_confirmation_evidence="PORTAL-CONFIRM-RETRY-OK",
+            explicit_confirmation_evidence="ATS-PORTAL-RETRY-OK",
         )
 
     assert retried_app.status == "Submitted"
     assert retried_app.submission_result == "success"
-    assert retried_app.confirmation_evidence == "PORTAL-CONFIRM-RETRY-OK"
+    assert retried_app.confirmation_evidence == "ATS-PORTAL-RETRY-OK"
     assert retried_app.applied_at is not None
 
     # Verify complete status journey in audit history
@@ -689,7 +697,7 @@ def test_10_reconcile_unconfirmed_submission(
         agent5.reconcile_unconfirmed_submission(db_session, app.id, resolution="Submitted", confirmation_evidence=None)
 
     # 2. Cannot reconcile to 'Submitted' using an internal approval token
-    with pytest.raises(ValueError, match="Internal user approval reference cannot be used"):
+    with pytest.raises(ValueError, match="Forbidden synthetic or internal confirmation evidence"):
         agent5.reconcile_unconfirmed_submission(
             db_session, app.id, resolution="Submitted", confirmation_evidence="USER-APPROVED-RECEIPT-FAKE"
         )
@@ -701,9 +709,9 @@ def test_10_reconcile_unconfirmed_submission(
 
     # 4. From Approved, can execute submission with genuine receipt
     agent4 = ApplicationExecutionAgent()
-    agent4.execute_submission(db_session, app.id, explicit_confirmation_evidence="VERIFIED-PORTAL-RECEIPT-99")
+    agent4.execute_submission(db_session, app.id, explicit_confirmation_evidence="ATS-WORKDAY-APP-99")
     assert app.status == "Submitted"
-    assert app.confirmation_evidence == "VERIFIED-PORTAL-RECEIPT-99"
+    assert app.confirmation_evidence == "ATS-WORKDAY-APP-99"
 
 
 # ===========================================================================
@@ -848,7 +856,286 @@ def test_12_telegram_notifications_lifecycle_distinction(
         agent4.execute_submission(
             db_session,
             app.id,
-            explicit_confirmation_evidence="PORTAL-CONFIRM-9988",
+            explicit_confirmation_evidence="ATS-PORTAL-CONF-9988",
         )
         assert "submission_started" in captured_events
         assert "submission_confirmed" in captured_events
+
+
+# ===========================================================================
+# TEST 13: None of the four handlers generate synthetic receipts or external IDs
+# ===========================================================================
+
+
+def test_13_handlers_never_generate_synthetic_receipts_or_external_ids(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    job, match, route = create_sample_job_match_and_route(db_session, sample_preference)
+
+    portal_handler = OfficialCompanyPortalHandler()
+    form_handler = OfficialApplicationFormHandler()
+    email_handler = PublishedHREmailHandler()
+    recruiter_handler = AuthorisedRecruiterOutreachHandler()
+
+    handlers = [
+        (portal_handler, "official_company_portal", "https://careers.google.com/jobs/123"),
+        (form_handler, "official_application_form", "https://apply.stripe.com/submit"),
+        (email_handler, "published_hr_email", "jobs@razorpay.com"),
+        (recruiter_handler, "verified_recruiter_contact", "recruiter@linkedin.com"),
+    ]
+
+    for handler, route_type, target in handlers:
+        r = ApplicationRoute(
+            discovered_job_id=job.id,
+            preference_id=sample_preference.id,
+            route_type=route_type,
+            url_or_contact=target,
+            source="official_portal",
+        )
+        pkg = handler.prepare_package(
+            job=job,
+            preference=sample_preference,
+            route=r,
+            resume=resume,
+            resume_version=ver,
+        )
+
+        res = handler.execute_submission(package=pkg, route=r)
+
+        # MUST return Submission Unconfirmed when called without genuine external evidence
+        assert res.status == "Submission Unconfirmed"
+        assert res.confirmation_evidence is None
+        assert res.external_application_id is None
+        assert res.submission_result == "unconfirmed"
+
+        # Verify absolutely no synthetic receipt was produced
+        for prefix in FORBIDDEN_SYNTHETIC_PREFIXES:
+            if res.confirmation_evidence:
+                assert not res.confirmation_evidence.startswith(prefix)
+            if res.external_application_id:
+                assert not res.external_application_id.startswith(prefix)
+
+
+# ===========================================================================
+# TEST 14: A prepared email is NEVER treated as sent
+# ===========================================================================
+
+
+def test_14_prepared_email_is_never_treated_as_sent(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    job, match, _ = create_sample_job_match_and_route(db_session, sample_preference)
+
+    email_route = ApplicationRoute(
+        discovered_job_id=job.id,
+        preference_id=sample_preference.id,
+        route_type="published_hr_email",
+        url_or_contact="talent@techcorp.in",
+        source="published_listing",
+    )
+    email_handler = PublishedHREmailHandler()
+    package = email_handler.prepare_package(
+        job=job,
+        preference=sample_preference,
+        route=email_route,
+        resume=resume,
+        resume_version=ver,
+    )
+
+    # Package preparation contains draft, subject, and anti-spam verification
+    assert package["recipient_email"] == "talent@techcorp.in"
+    assert "subject" in package
+    assert "body_preview" in package
+
+    # Executing without a verified SMTP provider delivery message ID
+    result = email_handler.execute_submission(package=package, route=email_route)
+
+    assert result.status == "Submission Unconfirmed"
+    assert result.status != "Submitted", "Email draft preparation must NEVER be treated as a sent email!"
+    assert result.confirmation_evidence is None
+    assert "draft is not sending an email" in result.notes
+
+
+# ===========================================================================
+# TEST 15: A prepared form is NEVER treated as submitted
+# ===========================================================================
+
+
+def test_15_prepared_form_is_never_treated_as_submitted(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    job, match, _ = create_sample_job_match_and_route(db_session, sample_preference)
+
+    form_route = ApplicationRoute(
+        discovered_job_id=job.id,
+        preference_id=sample_preference.id,
+        route_type="official_application_form",
+        url_or_contact="https://forms.company.com/apply/data-eng",
+        source="official_portal",
+    )
+    form_handler = OfficialApplicationFormHandler()
+    package = form_handler.prepare_package(
+        job=job,
+        preference=sample_preference,
+        route=form_route,
+        resume=resume,
+        resume_version=ver,
+    )
+
+    assert package["form_url"] == "https://forms.company.com/apply/data-eng"
+    assert len(package["fields_prepared"]) > 0
+
+    result = form_handler.execute_submission(package=package, route=form_route)
+
+    assert result.status == "Submission Unconfirmed"
+    assert result.status != "Submitted", "Form data preparation must NEVER be treated as submitted!"
+    assert result.confirmation_evidence is None
+    assert "form data is not submitting a form" in result.notes
+
+
+# ===========================================================================
+# TEST 16: Handlers reject forbidden synthetic confirmation evidence
+# ===========================================================================
+
+
+def test_16_handlers_reject_forbidden_synthetic_evidence(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    job, match, route = create_sample_job_match_and_route(db_session, sample_preference)
+
+    portal_handler = OfficialCompanyPortalHandler()
+    pkg = portal_handler.prepare_package(job, sample_preference, route, resume, ver)
+
+    forbidden_examples = [
+        "PORTAL-RECEIPT-ABCD1234EF",
+        "FORM-CONFIRM-5566778899",
+        "EMAIL-MSG-ID-1122334455",
+        "OUTREACH-ID-9988776655",
+        "EXT-PORTAL-12345678",
+        "EXT-FORM-87654321",
+        "EXT-EMAIL-11112222",
+        "EXT-OUTREACH-33334444",
+        "USER-APPROVED-RECEIPT-FAKE",
+        "USER-APPROVAL-REC-INTERNAL",
+    ]
+
+    for fake_evidence in forbidden_examples:
+        with pytest.raises(ValueError, match="Forbidden synthetic or internal confirmation evidence"):
+            portal_handler.execute_submission(
+                package=pkg,
+                route=route,
+                explicit_confirmation_evidence=fake_evidence,
+            )
+
+
+# ===========================================================================
+# TEST 17: User approval strictly sets Approved and NEVER auto-submits
+# ===========================================================================
+
+
+def test_17_user_approval_strictly_sets_approved_and_never_auto_submits(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    sample_preference.approved_resume_id = resume.id
+    sample_preference.approved_resume_version_id = ver.id
+
+    job, match, route = create_sample_job_match_and_route(
+        db_session, sample_preference, company="Swiggy", title="Product Analyst"
+    )
+
+    agent4 = ApplicationExecutionAgent()
+    settings = AutomationSettings(id=uuid.uuid4(), approval_mode="manual")
+
+    apps = agent4.process_shortlisted_jobs(
+        db=db_session,
+        preference=sample_preference,
+        shortlisted_matches=[match],
+        routes=[route],
+        automation_settings=settings,
+    )
+    app = apps[0]
+    assert app.status == "Awaiting Approval"
+
+    # Call approve_and_execute_application passing confirm_submission=True and evidence
+    with patch.object(telegram_service, "_send_telegram_http", return_value=(True, None)):
+        approved = agent4.approve_and_execute_application(
+            db=db_session,
+            application_id=app.id,
+            approved_by_user=True,
+            confirm_submission=True,  # Server-side safety: must be ignored
+            confirmation_evidence="SOME-EVIDENCE",
+            notes="User clicked approve button",
+        )
+
+    # CRITICAL: Must be 'Approved', NEVER 'Submitted' or 'Submission In Progress'
+    assert approved.status == "Approved"
+    assert approved.status != "Submitted"
+    assert approved.status != "Submission In Progress"
+    assert approved.applied_at is None
+    assert approved.confirmation_evidence is None
+    assert approved.approval_reference.startswith("USER-APPROVAL-REC-")
+
+
+# ===========================================================================
+# TEST 18: Reconciling unconfirmed submission rejects all synthetic prefixes
+# ===========================================================================
+
+
+def test_18_reconciling_rejects_synthetic_prefixes(
+    db_session: Session, sample_preference: JobPreference
+):
+    resume, ver = create_approved_resume_and_version(db_session)
+    job, match, route = create_sample_job_match_and_route(db_session, sample_preference)
+
+    app = Application(
+        id=uuid.uuid4(),
+        preference_id=sample_preference.id,
+        discovered_job_id=job.id,
+        company=job.company,
+        job_title=job.title,
+        route_type=route.route_type,
+        route_target=route.url_or_contact,
+        status="Submission Unconfirmed",
+        approved_by_user=True,
+        resume_id=resume.id,
+        resume_version_id=ver.id,
+        idempotency_key="key-test-18",
+    )
+    db_session.add(app)
+    db_session.commit()
+
+    agent5 = ApplicationTrackingAgent()
+
+    synthetic_tokens = [
+        "PORTAL-RECEIPT-ABCD",
+        "FORM-CONFIRM-XYZ",
+        "EMAIL-MSG-ID-001",
+        "OUTREACH-ID-7788",
+        "EXT-PORTAL-AABB",
+        "USER-APPROVED-RECEIPT-1234",
+        "USER-APPROVAL-REC-5678",
+    ]
+
+    for syn in synthetic_tokens:
+        with pytest.raises(ValueError, match="Forbidden synthetic or internal confirmation evidence"):
+            agent5.reconcile_unconfirmed_submission(
+                db=db_session,
+                application_id=app.id,
+                resolution="Submitted",
+                confirmation_evidence=syn,
+            )
+
+    # Genuine external employer evidence succeeds
+    agent5.reconcile_unconfirmed_submission(
+        db=db_session,
+        application_id=app.id,
+        resolution="Submitted",
+        confirmation_evidence="WORKDAY-RECEIPT-CONF-992182",
+    )
+    assert app.status == "Submitted"
+    assert app.confirmation_evidence == "WORKDAY-RECEIPT-CONF-992182"
