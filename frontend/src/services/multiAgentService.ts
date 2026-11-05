@@ -259,6 +259,7 @@ export async function approveApplication(
     confirm_submission?: boolean;
     confirmation_evidence?: string;
     notes?: string;
+    auto_submit?: boolean;
   },
 ): Promise<ApplicationItem> {
   return requestJson<ApplicationItem>(
@@ -266,8 +267,26 @@ export async function approveApplication(
     {
       method: 'POST',
       body: JSON.stringify(
-        payload ?? { approved_by_user: true, confirm_submission: true },
+        payload ?? { approved_by_user: true, confirm_submission: false },
       ),
+    },
+  );
+}
+
+export async function submitApplication(
+  applicationId: string,
+  payload?: {
+    simulate_uncertain?: boolean;
+    explicit_confirmation_evidence?: string;
+    explicit_application_id?: string;
+    notes?: string;
+  },
+): Promise<ApplicationItem> {
+  return requestJson<ApplicationItem>(
+    `${APPLICATIONS_API}/${applicationId}/submit`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload ?? {}),
     },
   );
 }
@@ -275,7 +294,7 @@ export async function approveApplication(
 export async function reconcileApplication(
   applicationId: string,
   payload: {
-    resolution: 'Submitted' | 'Awaiting Approval' | 'Withdrawn';
+    resolution: 'Submitted' | 'Approved' | 'Awaiting Approval' | 'Withdrawn';
     confirmation_evidence?: string;
     notes?: string;
   },

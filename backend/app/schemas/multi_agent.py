@@ -9,8 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 ApplicationLifecycleStatus = Literal[
     "Prepared",
     "Awaiting Approval",
+    "Approved",
+    "Submission In Progress",
     "Submitted",
     "Submission Unconfirmed",
+    "Failed",
     "Under Review",
     "Recruiter Response",
     "Interview",
@@ -187,7 +190,11 @@ class ApplicationResponse(BaseModel):
     approval_required: bool
     approved_by_user: bool
     approved_at: Optional[datetime] = None
+    approval_reference: Optional[str] = None
+    submission_attempted_at: Optional[datetime] = None
     applied_at: Optional[datetime] = None
+    external_application_id: Optional[str] = None
+    submission_result: Optional[str] = None
     confirmation_evidence: Optional[str] = None
     prepared_payload: Dict[str, Any] = Field(default_factory=dict)
     interview_date: Optional[datetime] = None
@@ -205,13 +212,26 @@ class ApplicationResponse(BaseModel):
 
 
 class ApplicationApproveRequest(BaseModel):
-    """Request payload when user approves a prepared application for submission."""
+    """Request payload when user approves a prepared application."""
 
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    auto_submit: bool = Field(
+        default=False,
+        description="Whether to immediately initiate submission after user approval.",
+    )
     confirmation_evidence: Optional[str] = Field(
         default=None,
         max_length=1000,
-        description="Optional confirmation reference or note from official portal/submission.",
+        description="Optional external confirmation receipt if auto-submitting immediately.",
     )
+
+
+class ApplicationSubmitRequest(BaseModel):
+    """Request payload when initiating external submission for an approved application."""
+
+    simulate_uncertain: bool = False
+    explicit_confirmation_evidence: Optional[str] = Field(default=None, max_length=1000)
+    explicit_application_id: Optional[str] = Field(default=None, max_length=150)
     notes: Optional[str] = Field(default=None, max_length=2000)
 
 

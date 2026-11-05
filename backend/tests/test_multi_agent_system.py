@@ -459,6 +459,8 @@ def test_complete_multi_agent_workflow_and_cross_preference_isolation():
     assert [h["new_status"] for h in history] == [
         "Prepared",
         "Awaiting Approval",
+        "Approved",
+        "Submission In Progress",
         "Submitted",
         "Interview",
     ]

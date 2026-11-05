@@ -97,11 +97,17 @@ class TelegramNotificationService:
             "workflow_started": automation_settings.notify_on_workflow_start,
             "workflow_completed": automation_settings.notify_on_workflow_complete,
             "important_error": automation_settings.notify_on_errors,
+            "application_approved": automation_settings.notify_on_application_submitted,
+            "submission_started": automation_settings.notify_on_application_submitted,
+            "submission_confirmed": automation_settings.notify_on_application_submitted,
             "application_submitted": automation_settings.notify_on_application_submitted,
             "submission_unconfirmed": automation_settings.notify_on_submission_unconfirmed,
+            "submission_failed": automation_settings.notify_on_errors,
             "interview_invitation": automation_settings.notify_on_interview,
+            "interview_update": automation_settings.notify_on_interview,
             "recruiter_response": automation_settings.notify_on_recruiter_response,
             "offer": automation_settings.notify_on_offer,
+            "offer_received": automation_settings.notify_on_offer,
             "daily_summary": automation_settings.notify_daily_summary,
         }
         return mapping.get(event_type, True)

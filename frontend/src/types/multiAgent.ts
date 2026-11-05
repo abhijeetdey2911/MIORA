@@ -1,8 +1,11 @@
 export type ApplicationLifecycleStatus =
   | 'Prepared'
   | 'Awaiting Approval'
+  | 'Approved'
+  | 'Submission In Progress'
   | 'Submitted'
   | 'Submission Unconfirmed'
+  | 'Failed'
   | 'Under Review'
   | 'Recruiter Response'
   | 'Interview'
@@ -130,7 +133,11 @@ export interface ApplicationItem {
   approval_required: boolean;
   approved_by_user: boolean;
   approved_at: string | null;
+  approval_reference: string | null;
+  submission_attempted_at: string | null;
   applied_at: string | null;
+  external_application_id: string | null;
+  submission_result: string | null;
   confirmation_evidence: string | null;
   prepared_payload: Record<string, unknown>;
   interview_date: string | null;

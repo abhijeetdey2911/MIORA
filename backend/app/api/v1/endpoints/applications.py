@@ -18,6 +18,7 @@ from app.schemas.multi_agent import (
     ApplicationResponse,
     ApplicationStatusHistoryResponse,
     ApplicationStatusUpdateRequest,
+    ApplicationSubmitRequest,
     NotificationResponse,
 )
 from app.services.agents import agent4_execution, agent5_tracking
@@ -36,7 +37,7 @@ class ReconcileSubmissionRequest(BaseModel):
 
 class ApprovalActionPayload(ApplicationApproveRequest):
     approved_by_user: bool = True
-    confirm_submission: bool = True
+    confirm_submission: Optional[bool] = None
 
 
 def _serialize_application(
@@ -83,7 +84,11 @@ def _serialize_application(
         approval_required=app_record.approval_required,
         approved_by_user=app_record.approved_by_user,
         approved_at=app_record.approved_at,
+        approval_reference=app_record.approval_reference,
+        submission_attempted_at=app_record.submission_attempted_at,
         applied_at=app_record.applied_at,
+        external_application_id=app_record.external_application_id,
+        submission_result=app_record.submission_result,
         confirmation_evidence=app_record.confirmation_evidence,
         prepared_payload=app_record.prepared_payload,
         interview_date=app_record.interview_date,
@@ -225,7 +230,7 @@ def get_application(
     "/{application_id}/approve",
     response_model=ApplicationResponse,
     status_code=status.HTTP_200_OK,
-    summary="Approve & Execute a Prepared Application (Agent 4)",
+    summary="Approve Application for Submission (Agent 4)",
 )
 def approve_application(
     application_id: UUID,
@@ -234,12 +239,45 @@ def approve_application(
 ) -> ApplicationResponse:
     req = payload or ApprovalActionPayload()
     try:
+        confirm_sub = req.confirm_submission
+        if confirm_sub is None and req.auto_submit:
+            confirm_sub = True
+
         updated = agent4_execution.approve_and_execute_application(
             db=db,
             application_id=application_id,
             approved_by_user=req.approved_by_user,
-            confirm_submission=req.confirm_submission,
+            confirm_submission=confirm_sub,
             confirmation_evidence=req.confirmation_evidence,
+            notes=req.notes,
+        )
+        return _serialize_application(db, updated)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{application_id}/submit",
+    response_model=ApplicationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Submit an Approved Application to External Employer (Agent 4)",
+)
+def submit_application(
+    application_id: UUID,
+    payload: Optional[ApplicationSubmitRequest] = None,
+    db: Session = Depends(get_db),
+) -> ApplicationResponse:
+    req = payload or ApplicationSubmitRequest()
+    try:
+        updated = agent4_execution.execute_submission(
+            db=db,
+            application_id=application_id,
+            simulate_uncertain=req.simulate_uncertain,
+            explicit_confirmation_evidence=req.explicit_confirmation_evidence,
+            explicit_application_id=req.explicit_application_id,
             notes=req.notes,
         )
         return _serialize_application(db, updated)

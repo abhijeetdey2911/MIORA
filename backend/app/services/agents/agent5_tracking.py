@@ -33,8 +33,11 @@ from app.services.telegram_service import telegram_service
 VALID_APPLICATION_STATUSES = (
     "Prepared",
     "Awaiting Approval",
+    "Approved",
+    "Submission In Progress",
     "Submitted",
     "Submission Unconfirmed",
+    "Failed",
     "Under Review",
     "Recruiter Response",
     "Interview",
@@ -161,11 +164,23 @@ class ApplicationTrackingAgent:
         now = datetime.now(timezone.utc)
         previous_status = app_record.status
 
-        if new_status == "Submitted" and not (evidence or app_record.confirmation_evidence):
-            raise ValueError(
-                "Cannot mark application as 'Submitted' without confirmation evidence. "
-                "Use 'Submission Unconfirmed' when confirmation receipt is unavailable."
-            )
+        if new_status == "Submitted":
+            active_evidence = evidence or app_record.confirmation_evidence
+            if not active_evidence:
+                raise ValueError(
+                    "Cannot mark application as 'Submitted' without confirmation evidence. "
+                    "Use 'Submission Unconfirmed' when confirmation receipt is unavailable."
+                )
+            if active_evidence.startswith("USER-APPROVED-RECEIPT") or active_evidence.startswith("USER-APPROVAL"):
+                raise ValueError(
+                    "Internal user approval reference cannot be used as external confirmation evidence. "
+                    "Genuine employer confirmation receipt is required."
+                )
+
+        if new_status == "Approved":
+            app_record.approved_by_user = True
+            if app_record.approved_at is None:
+                app_record.approved_at = now
 
         app_record.status = new_status
         if evidence:
@@ -205,10 +220,25 @@ class ApplicationTrackingAgent:
 
         # Dispatch notification for key milestones
         milestone_event_map = {
-            "Submitted": ("application_submitted", f"Application Submitted: {app_record.job_title}"),
+            "Approved": (
+                "application_approved",
+                f"Application Approved: {app_record.job_title} at {app_record.company}",
+            ),
+            "Submission In Progress": (
+                "submission_started",
+                f"Submission Started: {app_record.job_title} at {app_record.company}",
+            ),
+            "Submitted": (
+                "submission_confirmed",
+                f"Application Submitted & Confirmed: {app_record.job_title} at {app_record.company}",
+            ),
             "Submission Unconfirmed": (
                 "submission_unconfirmed",
-                f"Submission Unconfirmed: {app_record.job_title}",
+                f"Submission Unconfirmed: {app_record.job_title} at {app_record.company}",
+            ),
+            "Failed": (
+                "submission_failed",
+                f"Submission Failed: {app_record.job_title} at {app_record.company}",
             ),
             "Recruiter Response": (
                 "recruiter_response",
@@ -260,8 +290,9 @@ class ApplicationTrackingAgent:
         """Reconcile an application in `'Submission Unconfirmed'` status before any retry.
 
         `resolution` must be one of:
-        - `'Submitted'` (requires `confirmation_evidence`)
-        - `'Awaiting Approval'` (clears unconfirmed lock so user/agent can safely retry)
+        - `'Submitted'` (requires legitimate external `confirmation_evidence`)
+        - `'Approved'` (re-enables submission without needing re-approval)
+        - `'Awaiting Approval'` (clears unconfirmed lock and returns to user review queue)
         - `'Withdrawn'`
         """
         app_record = db.get(Application, application_id)
@@ -271,16 +302,22 @@ class ApplicationTrackingAgent:
             raise ValueError(
                 f"Application status is '{app_record.status}', not 'Submission Unconfirmed'."
             )
-        if resolution not in ("Submitted", "Awaiting Approval", "Withdrawn"):
+        if resolution not in ("Submitted", "Approved", "Awaiting Approval", "Withdrawn"):
             raise ValueError(
-                "Reconciliation resolution must be 'Submitted', 'Awaiting Approval', or 'Withdrawn'."
+                "Reconciliation resolution must be 'Submitted', 'Approved', 'Awaiting Approval', or 'Withdrawn'."
             )
-        if resolution == "Submitted" and not confirmation_evidence:
-            raise ValueError(
-                "Reconciling to 'Submitted' requires confirmation_evidence (e.g. email or portal receipt)."
-            )
+        if resolution == "Submitted":
+            if not confirmation_evidence:
+                raise ValueError(
+                    "Reconciling to 'Submitted' requires confirmation_evidence (e.g. email or portal receipt)."
+                )
+            if confirmation_evidence.startswith("USER-APPROVED-RECEIPT") or confirmation_evidence.startswith("USER-APPROVAL"):
+                raise ValueError(
+                    "Internal user approval reference cannot be used as external confirmation evidence. "
+                    "A genuine external employer or portal confirmation receipt is required."
+                )
 
-        if resolution == "Awaiting Approval":
+        if resolution in ("Awaiting Approval", "Approved"):
             app_record.retry_count = (app_record.retry_count or 0) + 1
 
         return self.update_application_status(

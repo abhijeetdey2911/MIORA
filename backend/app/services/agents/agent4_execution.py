@@ -49,11 +49,23 @@ class SubagentExecutionResult:
         status: str,
         prepared_payload: Dict[str, Any],
         confirmation_evidence: Optional[str] = None,
+        external_application_id: Optional[str] = None,
+        submission_result: Optional[str] = None,
+        error_message: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> None:
         self.status = status
         self.prepared_payload = prepared_payload
         self.confirmation_evidence = confirmation_evidence
+        self.external_application_id = external_application_id
+        self.submission_result = submission_result or (
+            "success"
+            if status == "Submitted"
+            else "unconfirmed"
+            if status == "Submission Unconfirmed"
+            else "failed"
+        )
+        self.error_message = error_message
         self.notes = notes
 
 
@@ -95,13 +107,25 @@ class OfficialCompanyPortalHandler:
         package: Dict[str, Any],
         route: ApplicationRoute,
         simulate_uncertain_outcome: bool = False,
+        simulate_failed_outcome: bool = False,
         explicit_confirmation_evidence: Optional[str] = None,
+        explicit_application_id: Optional[str] = None,
     ) -> SubagentExecutionResult:
+        if simulate_failed_outcome:
+            return SubagentExecutionResult(
+                status="Failed",
+                prepared_payload=package,
+                error_message="Official portal session expired or ATS portal rejected submission payload.",
+                submission_result="failed",
+                notes="External portal submission failed due to employer ATS session error.",
+            )
+
         if simulate_uncertain_outcome:
             return SubagentExecutionResult(
                 status="Submission Unconfirmed",
                 prepared_payload=package,
                 confirmation_evidence=None,
+                submission_result="unconfirmed",
                 notes=(
                     "Portal submission initiated, but final confirmation receipt could not be verified. "
                     "Marked as Submission Unconfirmed to prevent duplicate retries until reconciled."
@@ -109,10 +133,13 @@ class OfficialCompanyPortalHandler:
             )
 
         if explicit_confirmation_evidence:
+            ext_id = explicit_application_id or f"EXT-PORTAL-{hashlib.sha256(explicit_confirmation_evidence.encode('utf-8')).hexdigest()[:8].upper()}"
             return SubagentExecutionResult(
                 status="Submitted",
                 prepared_payload=package,
                 confirmation_evidence=explicit_confirmation_evidence,
+                external_application_id=ext_id,
+                submission_result="success",
                 notes="Application submitted via official company portal with verified confirmation receipt.",
             )
 
@@ -123,6 +150,7 @@ class OfficialCompanyPortalHandler:
                 status="Submission Unconfirmed",
                 prepared_payload=package,
                 confirmation_evidence=None,
+                submission_result="unconfirmed",
                 notes=(
                     "Automated portal submission initiated without Playwright receipt verification; "
                     "marked as Submission Unconfirmed pending confirmation receipt."
@@ -132,10 +160,13 @@ class OfficialCompanyPortalHandler:
         receipt = (
             f"PORTAL-RECEIPT-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
         )
+        ext_id = explicit_application_id or f"EXT-PORTAL-{hashlib.sha256(receipt.encode('utf-8')).hexdigest()[:8].upper()}"
         return SubagentExecutionResult(
             status="Submitted",
             prepared_payload=package,
             confirmation_evidence=receipt,
+            external_application_id=ext_id,
+            submission_result="success",
             notes=f"Official portal submission confirmed ({receipt}).",
         )
 
@@ -175,23 +206,38 @@ class OfficialApplicationFormHandler:
         package: Dict[str, Any],
         route: ApplicationRoute,
         simulate_uncertain_outcome: bool = False,
+        simulate_failed_outcome: bool = False,
         explicit_confirmation_evidence: Optional[str] = None,
+        explicit_application_id: Optional[str] = None,
     ) -> SubagentExecutionResult:
+        if simulate_failed_outcome:
+            return SubagentExecutionResult(
+                status="Failed",
+                prepared_payload=package,
+                error_message="Official application form rejected submission fields or validation failed.",
+                submission_result="failed",
+                notes="Official application form submission failed.",
+            )
+
         if simulate_uncertain_outcome:
             return SubagentExecutionResult(
                 status="Submission Unconfirmed",
                 prepared_payload=package,
                 confirmation_evidence=None,
+                submission_result="unconfirmed",
                 notes="Official form submission did not return a deterministic HTTP confirmation token.",
             )
 
         evidence = explicit_confirmation_evidence or (
             f"FORM-CONFIRM-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
         )
+        ext_id = explicit_application_id or f"EXT-FORM-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
         return SubagentExecutionResult(
             status="Submitted",
             prepared_payload=package,
             confirmation_evidence=evidence,
+            external_application_id=ext_id,
+            submission_result="success",
             notes=f"Official application form submitted with confirmation token ({evidence}).",
         )
 
@@ -232,23 +278,38 @@ class PublishedHREmailHandler:
         package: Dict[str, Any],
         route: ApplicationRoute,
         simulate_uncertain_outcome: bool = False,
+        simulate_failed_outcome: bool = False,
         explicit_confirmation_evidence: Optional[str] = None,
+        explicit_application_id: Optional[str] = None,
     ) -> SubagentExecutionResult:
+        if simulate_failed_outcome:
+            return SubagentExecutionResult(
+                status="Failed",
+                prepared_payload=package,
+                error_message="SMTP server rejected email delivery (e.g. 550 Mailbox unavailable).",
+                submission_result="failed",
+                notes="HR email dispatch failed due to SMTP delivery error.",
+            )
+
         if simulate_uncertain_outcome:
             return SubagentExecutionResult(
                 status="Submission Unconfirmed",
                 prepared_payload=package,
                 confirmation_evidence=None,
+                submission_result="unconfirmed",
                 notes="Published HR email dispatch status uncertain; awaiting SMTP delivery receipt.",
             )
 
         evidence = explicit_confirmation_evidence or (
             f"EMAIL-MSG-ID-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
         )
+        ext_id = explicit_application_id or f"EXT-EMAIL-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
         return SubagentExecutionResult(
             status="Submitted",
             prepared_payload=package,
             confirmation_evidence=evidence,
+            external_application_id=ext_id,
+            submission_result="success",
             notes=f"Published HR application email dispatched ({evidence}).",
         )
 
@@ -285,23 +346,38 @@ class AuthorisedRecruiterOutreachHandler:
         package: Dict[str, Any],
         route: ApplicationRoute,
         simulate_uncertain_outcome: bool = False,
+        simulate_failed_outcome: bool = False,
         explicit_confirmation_evidence: Optional[str] = None,
+        explicit_application_id: Optional[str] = None,
     ) -> SubagentExecutionResult:
+        if simulate_failed_outcome:
+            return SubagentExecutionResult(
+                status="Failed",
+                prepared_payload=package,
+                error_message="Recruiter contact message failed to send: rate limit exceeded or contact invalid.",
+                submission_result="failed",
+                notes="Recruiter outreach dispatch failed.",
+            )
+
         if simulate_uncertain_outcome:
             return SubagentExecutionResult(
                 status="Submission Unconfirmed",
                 prepared_payload=package,
                 confirmation_evidence=None,
+                submission_result="unconfirmed",
                 notes="Recruiter outreach delivery unconfirmed; marked for manual reconciliation.",
             )
 
         evidence = explicit_confirmation_evidence or (
             f"OUTREACH-ID-{hashlib.sha256(route.url_or_contact.encode('utf-8')).hexdigest()[:10].upper()}"
         )
+        ext_id = explicit_application_id or f"EXT-OUTREACH-{hashlib.sha256(evidence.encode('utf-8')).hexdigest()[:8].upper()}"
         return SubagentExecutionResult(
             status="Submitted",
             prepared_payload=package,
             confirmation_evidence=evidence,
+            external_application_id=ext_id,
+            submission_result="success",
             notes=f"Authorised recruiter outreach recorded ({evidence}).",
         )
 
@@ -506,15 +582,52 @@ class ApplicationExecutionAgent:
 
             if auto_submit:
                 simulate_uncertain = bool((job.raw_metadata or {}).get("simulate_uncertain_submission"))
+                simulate_failure = bool((job.raw_metadata or {}).get("simulate_failed_submission"))
                 explicit_receipt = (job.raw_metadata or {}).get("confirmation_receipt")
+                explicit_ext_id = (job.raw_metadata or {}).get("external_application_id")
+
+                app_record.approved_by_user = True
+                app_record.approved_at = now
+                app_record.approval_reference = "AUTO-AUTHORISED-POLICY"
+                app_record.status = "Approved"
+                db.add(
+                    ApplicationStatusHistory(
+                        application_id=app_record.id,
+                        previous_status="Prepared",
+                        new_status="Approved",
+                        source="agent_4_auto_authorised",
+                        notes="Auto-authorised based on automation settings policy.",
+                    )
+                )
+                db.flush()
+
+                # Transition to Submission In Progress
+                app_record.status = "Submission In Progress"
+                app_record.submission_attempted_at = now
+                db.add(
+                    ApplicationStatusHistory(
+                        application_id=app_record.id,
+                        previous_status="Approved",
+                        new_status="Submission In Progress",
+                        source="agent_4_auto_authorised",
+                        notes="Starting auto-authorised external submission attempt.",
+                    )
+                )
+                db.flush()
+
                 exec_result = handler.execute_submission(
                     package=package,
                     route=best_route,
                     simulate_uncertain_outcome=simulate_uncertain,
+                    simulate_failed_outcome=simulate_failure,
                     explicit_confirmation_evidence=explicit_receipt,
+                    explicit_application_id=explicit_ext_id,
                 )
                 app_record.status = exec_result.status
                 app_record.confirmation_evidence = exec_result.confirmation_evidence
+                app_record.external_application_id = exec_result.external_application_id
+                app_record.submission_result = exec_result.submission_result
+                app_record.error_message = exec_result.error_message
                 app_record.notes = exec_result.notes
                 if exec_result.status == "Submitted":
                     app_record.applied_at = now
@@ -522,7 +635,7 @@ class ApplicationExecutionAgent:
                 db.add(
                     ApplicationStatusHistory(
                         application_id=app_record.id,
-                        previous_status="Prepared",
+                        previous_status="Submission In Progress",
                         new_status=exec_result.status,
                         source="agent_4_auto_authorised",
                         notes=exec_result.notes,
@@ -548,21 +661,101 @@ class ApplicationExecutionAgent:
         db.commit()
         return created_applications
 
-    def approve_and_execute_application(
+    def approve_application(
         self,
         db: Session,
         application_id: uuid.UUID,
-        approved_by_user: bool = True,
-        confirm_submission: bool = True,
-        confirmation_evidence: Optional[str] = None,
         notes: Optional[str] = None,
     ) -> Application:
-        """Execute a prepared/awaiting-approval application after user approval.
+        """Explicit user approval transitions an application from 'Awaiting Approval' to 'Approved'.
 
-        Enforces:
-        - Resume used must be approved.
-        - Cannot re-submit an already `Submitted` or unreconciled `Submission Unconfirmed` application.
-        - Never marks `Submitted` unless `confirm_submission` is True and confirmation evidence is recorded.
+        Strict safety guarantee: User approval NEVER marks an application as 'Submitted'.
+        Generates an internal approval audit reference (USER-APPROVAL-REC-xxxx).
+        """
+        app_record = db.get(Application, application_id)
+        if not app_record:
+            raise ValueError("Application not found.")
+
+        if app_record.status == "Submitted":
+            raise ValueError("Application has already been submitted.")
+
+        if app_record.status == "Submission In Progress":
+            raise ValueError("Application submission is currently in progress.")
+
+        if app_record.status == "Submission Unconfirmed":
+            raise ValueError(
+                "Application is in 'Submission Unconfirmed' state and must be reconciled before retrying."
+            )
+
+        if app_record.status == "Approved":
+            return app_record
+
+        # Enforce approved resume
+        if app_record.resume_id:
+            resume = db.get(Resume, app_record.resume_id)
+            if not resume or resume.processing_status != "Processed":
+                raise ValueError("Cannot approve application: associated resume is not processed.")
+            if app_record.resume_version_id:
+                ver = db.get(ResumeVersion, app_record.resume_version_id)
+                if not ver or ver.approval_status != "Approved":
+                    raise ValueError("Cannot approve application: resume version is not approved.")
+        else:
+            raise ValueError("Cannot approve application without an approved resume.")
+
+        now = datetime.now(timezone.utc)
+        previous_status = app_record.status
+        approval_ref = f"USER-APPROVAL-REC-{hashlib.sha256(f'{app_record.id}:{now.isoformat()}'.encode('utf-8')).hexdigest()[:10].upper()}"
+
+        app_record.approved_by_user = True
+        app_record.approved_at = now
+        app_record.approval_reference = approval_ref
+        app_record.status = "Approved"
+        app_record.notes = notes or f"Application explicitly approved by user (Ref: {approval_ref}). Ready for submission."
+
+        db.add(
+            ApplicationStatusHistory(
+                application_id=app_record.id,
+                previous_status=previous_status,
+                new_status="Approved",
+                source="user_approval",
+                notes=app_record.notes,
+            )
+        )
+        db.commit()
+        db.refresh(app_record)
+
+        telegram_service.record_and_dispatch(
+            db,
+            event_type="application_approved",
+            title=f"Application Approved: {app_record.job_title} at {app_record.company}",
+            message=f"Application approved by user (Ref: {approval_ref}). Queued for external submission.",
+            preference_id=app_record.preference_id,
+            application_id=app_record.id,
+            company=app_record.company,
+            job_title=app_record.job_title,
+            status_badge="Approved",
+        )
+        return app_record
+
+    def execute_submission(
+        self,
+        db: Session,
+        application_id: uuid.UUID,
+        simulate_uncertain: bool = False,
+        simulate_failure: bool = False,
+        explicit_confirmation_evidence: Optional[str] = None,
+        explicit_application_id: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Application:
+        """Executes external submission for an Approved (or retrying Failed) application.
+
+        Lifecycle progression:
+        1. Transitions 'Approved' -> 'Submission In Progress'.
+        2. Executes external route handler.
+        3. Evaluates external confirmation:
+           - If genuine employer confirmation receipt verified: transitions to 'Submitted'.
+           - If outcome uncertain: transitions to 'Submission Unconfirmed'.
+           - If submission fails or network/server error: transitions to 'Failed'.
         """
         app_record = db.get(Application, application_id)
         if not app_record:
@@ -571,11 +764,23 @@ class ApplicationExecutionAgent:
         if app_record.status == "Submitted":
             raise ValueError("Application has already been submitted; duplicate submission is blocked.")
 
+        if app_record.status == "Submission In Progress":
+            raise ValueError("Application submission is currently in progress.")
+
         if app_record.status == "Submission Unconfirmed":
             raise ValueError(
                 "Application is in 'Submission Unconfirmed' state and must be reconciled before retrying."
             )
 
+        if app_record.status in ("Prepared", "Awaiting Approval"):
+            raise ValueError(
+                "Application requires user approval before submission. Status must be 'Approved'."
+            )
+
+        if not app_record.approved_by_user and app_record.status != "Approved":
+            raise ValueError("Application has not been approved by user.")
+
+        # Enforce approved resume
         if app_record.resume_id:
             resume = db.get(Resume, app_record.resume_id)
             if not resume or resume.processing_status != "Processed":
@@ -587,10 +792,213 @@ class ApplicationExecutionAgent:
         else:
             raise ValueError("Cannot submit application without an approved resume.")
 
+        # Guard: Internal approval receipts cannot be passed as external confirmation evidence
+        if explicit_confirmation_evidence and (
+            explicit_confirmation_evidence.startswith("USER-APPROVED-RECEIPT")
+            or explicit_confirmation_evidence.startswith("USER-APPROVAL")
+        ):
+            raise ValueError(
+                "Internal user approval reference cannot be used as external confirmation evidence. "
+                "A genuine external employer or portal confirmation receipt is required."
+            )
+
         now = datetime.now(timezone.utc)
         previous_status = app_record.status
 
+        # Step 1: Transition to 'Submission In Progress'
+        app_record.status = "Submission In Progress"
+        app_record.submission_attempted_at = now
+        app_record.notes = notes or f"External submission attempt initiated via {app_record.route_type} to {app_record.route_target}."
+
+        db.add(
+            ApplicationStatusHistory(
+                application_id=app_record.id,
+                previous_status=previous_status,
+                new_status="Submission In Progress",
+                source="agent_4_execution",
+                notes=app_record.notes,
+            )
+        )
+        db.commit()
+        db.refresh(app_record)
+
+        telegram_service.record_and_dispatch(
+            db,
+            event_type="submission_started",
+            title=f"Submission Started: {app_record.job_title} at {app_record.company}",
+            message=f"Beginning external submission via {app_record.route_type} to {app_record.route_target}.",
+            preference_id=app_record.preference_id,
+            application_id=app_record.id,
+            company=app_record.company,
+            job_title=app_record.job_title,
+            status_badge="Submission In Progress",
+        )
+
+        # Step 2: Invoke subagent handler
+        route = db.get(ApplicationRoute, app_record.route_id) if app_record.route_id else None
+        if not route:
+            route = ApplicationRoute(
+                discovered_job_id=app_record.discovered_job_id,
+                preference_id=app_record.preference_id,
+                route_type=app_record.route_type,
+                url_or_contact=app_record.route_target,
+                source="inferred",
+            )
+
+        handler = self.handlers.get(app_record.route_type, self.handlers["official_company_portal"])
+
+        try:
+            result = handler.execute_submission(
+                package=app_record.prepared_payload,
+                route=route,
+                simulate_uncertain_outcome=simulate_uncertain,
+                simulate_failed_outcome=simulate_failure,
+                explicit_confirmation_evidence=explicit_confirmation_evidence,
+                explicit_application_id=explicit_application_id,
+            )
+        except Exception as exc:
+            result = SubagentExecutionResult(
+                status="Failed",
+                prepared_payload=app_record.prepared_payload,
+                error_message=str(exc),
+                submission_result="failed",
+                notes=f"Submission failed with error: {str(exc)}",
+            )
+
+        # Step 3: Evaluate result and transition
+        post_progress_status = "Submission In Progress"
+        if result.status == "Submitted" and result.confirmation_evidence:
+            app_record.status = "Submitted"
+            app_record.applied_at = datetime.now(timezone.utc)
+            app_record.confirmation_evidence = result.confirmation_evidence
+            app_record.external_application_id = result.external_application_id
+            app_record.submission_result = "success"
+            app_record.error_message = None
+            if app_record.follow_up_reminder_at is None:
+                app_record.follow_up_reminder_at = app_record.applied_at + timedelta(days=7)
+            app_record.notes = notes or result.notes or f"Application submitted with external confirmation ({result.confirmation_evidence})."
+
+            db.add(
+                ApplicationStatusHistory(
+                    application_id=app_record.id,
+                    previous_status=post_progress_status,
+                    new_status="Submitted",
+                    source="agent_4_execution",
+                    notes=app_record.notes,
+                    evidence=app_record.confirmation_evidence,
+                )
+            )
+            db.commit()
+            db.refresh(app_record)
+
+            telegram_service.record_and_dispatch(
+                db,
+                event_type="submission_confirmed",
+                title=f"Submission Confirmed: {app_record.job_title} at {app_record.company}",
+                message=f"Application confirmed by employer/portal. Evidence: {app_record.confirmation_evidence}",
+                preference_id=app_record.preference_id,
+                application_id=app_record.id,
+                company=app_record.company,
+                job_title=app_record.job_title,
+                status_badge="Submitted",
+            )
+
+        elif result.status == "Submission Unconfirmed":
+            app_record.status = "Submission Unconfirmed"
+            app_record.confirmation_evidence = None
+            app_record.submission_result = "unconfirmed"
+            app_record.notes = notes or result.notes or (
+                "Submission attempt completed, but external confirmation could not be verified. "
+                "Marked as Submission Unconfirmed to prevent duplicate retries until reconciled."
+            )
+
+            db.add(
+                ApplicationStatusHistory(
+                    application_id=app_record.id,
+                    previous_status=post_progress_status,
+                    new_status="Submission Unconfirmed",
+                    source="agent_4_execution",
+                    notes=app_record.notes,
+                )
+            )
+            db.commit()
+            db.refresh(app_record)
+
+            telegram_service.record_and_dispatch(
+                db,
+                event_type="submission_unconfirmed",
+                title=f"Submission Unconfirmed: {app_record.job_title} at {app_record.company}",
+                message=app_record.notes,
+                preference_id=app_record.preference_id,
+                application_id=app_record.id,
+                company=app_record.company,
+                job_title=app_record.job_title,
+                status_badge="Submission Unconfirmed",
+            )
+
+        else:  # Failed
+            app_record.status = "Failed"
+            app_record.submission_result = "failed"
+            app_record.error_message = result.error_message or "External submission attempt failed."
+            app_record.retry_count = (app_record.retry_count or 0) + 1
+            app_record.notes = notes or result.notes or f"External submission failed: {app_record.error_message}"
+
+            db.add(
+                ApplicationStatusHistory(
+                    application_id=app_record.id,
+                    previous_status=post_progress_status,
+                    new_status="Failed",
+                    source="agent_4_execution",
+                    notes=app_record.notes,
+                )
+            )
+            db.commit()
+            db.refresh(app_record)
+
+            telegram_service.record_and_dispatch(
+                db,
+                event_type="submission_failed",
+                title=f"Submission Failed: {app_record.job_title} at {app_record.company}",
+                message=app_record.notes,
+                preference_id=app_record.preference_id,
+                application_id=app_record.id,
+                company=app_record.company,
+                job_title=app_record.job_title,
+                status_badge="Failed",
+            )
+
+        from app.services.agents.agent5_tracking import agent5_tracking
+        agent5_tracking.sync_preference_applications(db, app_record.preference_id)
+        return app_record
+
+    def approve_and_execute_application(
+        self,
+        db: Session,
+        application_id: uuid.UUID,
+        approved_by_user: bool = True,
+        confirm_submission: Optional[bool] = None,
+        confirmation_evidence: Optional[str] = None,
+        notes: Optional[str] = None,
+    ) -> Application:
+        """Handle user approval and optional immediate execution.
+
+        Strict enforcement:
+        - If approved_by_user is False: marks 'Withdrawn'.
+        - If approved_by_user is True:
+          First calls approve_application -> transitions 'Awaiting Approval' to 'Approved'.
+          If confirm_submission is True:
+            calls execute_submission -> transitions 'Approved' -> 'Submission In Progress' -> 'Submitted' (or outcome).
+          If confirm_submission is False:
+            calls execute_submission with simulate_uncertain=True -> transitions 'Approved' -> 'Submission In Progress' -> 'Submission Unconfirmed'.
+          If confirm_submission is None:
+            remains in 'Approved' state awaiting subsequent submission trigger.
+        """
+        app_record = db.get(Application, application_id)
+        if not app_record:
+            raise ValueError("Application not found.")
+
         if not approved_by_user:
+            previous_status = app_record.status
             app_record.status = "Withdrawn"
             app_record.notes = notes or "Application withdrawn by user during approval review."
             db.add(
@@ -606,55 +1014,25 @@ class ApplicationExecutionAgent:
             db.refresh(app_record)
             return app_record
 
-        app_record.approved_by_user = True
-        app_record.approved_at = now
+        # Step 1: Explicit Approval (transitions to Approved)
+        app_record = self.approve_application(db, application_id=application_id, notes=notes)
 
-        if confirm_submission:
-            evidence = confirmation_evidence or (
-                f"USER-APPROVED-RECEIPT-{hashlib.sha256(str(app_record.id).encode('utf-8')).hexdigest()[:10].upper()}"
+        # Step 2: Handle submission execution if explicitly requested
+        if confirm_submission is True:
+            app_record = self.execute_submission(
+                db,
+                application_id=application_id,
+                explicit_confirmation_evidence=confirmation_evidence,
+                notes=notes,
             )
-            app_record.status = "Submitted"
-            app_record.applied_at = now
-            if app_record.follow_up_reminder_at is None:
-                app_record.follow_up_reminder_at = now + timedelta(days=7)
-            app_record.confirmation_evidence = evidence
-            app_record.notes = notes or f"Approved by user and submitted with confirmation ({evidence})."
-            event_type = "application_submitted"
-            event_title = f"Application Submitted: {app_record.job_title} at {app_record.company}"
-        else:
-            app_record.status = "Submission Unconfirmed"
-            app_record.confirmation_evidence = None
-            app_record.notes = notes or (
-                "Approved by user, but final submission receipt was not confirmed. "
-                "Marked as Submission Unconfirmed to prevent duplicate retries until reconciled."
+        elif confirm_submission is False:
+            app_record = self.execute_submission(
+                db,
+                application_id=application_id,
+                simulate_uncertain=True,
+                notes=notes,
             )
-            event_type = "submission_unconfirmed"
-            event_title = f"Submission Unconfirmed: {app_record.job_title} at {app_record.company}"
 
-        db.add(
-            ApplicationStatusHistory(
-                application_id=app_record.id,
-                previous_status=previous_status,
-                new_status=app_record.status,
-                source="user_approval",
-                notes=app_record.notes,
-                evidence=app_record.confirmation_evidence,
-            )
-        )
-        db.commit()
-        db.refresh(app_record)
-
-        telegram_service.record_and_dispatch(
-            db,
-            event_type=event_type,
-            title=event_title,
-            message=app_record.notes or event_title,
-            preference_id=app_record.preference_id,
-            application_id=app_record.id,
-            company=app_record.company,
-            job_title=app_record.job_title,
-            status_badge=app_record.status,
-        )
         return app_record
 
 

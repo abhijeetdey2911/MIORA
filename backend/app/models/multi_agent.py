@@ -520,8 +520,24 @@ class Application(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    approval_reference: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+    )
+    submission_attempted_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     applied_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
+        nullable=True,
+    )
+    external_application_id: Mapped[Optional[str]] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+    submission_result: Mapped[Optional[str]] = mapped_column(
+        String(50),
         nullable=True,
     )
     confirmation_evidence: Mapped[Optional[str]] = mapped_column(
