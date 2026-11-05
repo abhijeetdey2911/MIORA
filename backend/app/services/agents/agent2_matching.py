@@ -22,7 +22,9 @@ from app.models.multi_agent import DiscoveredJob, JobMatch
 from app.models.orchestration import PreferenceJobResult
 from app.models.resume_intelligence import ResumeAnalysis, ResumeVersion
 from app.services.ai_provider import AIProviderClient
+from app.services.experience_matcher import evaluate_experience_eligibility
 from app.services.location_matcher import evaluate_location_eligibility
+from app.services.role_synonyms import expand_job_roles
 
 logger = logging.getLogger("jobhunter.agent2_matching")
 
@@ -104,14 +106,19 @@ class JobMatchingAgent:
             has_location_ineligibility = any(
                 "Location Ineligible" in r for r in evaluation.reasons_for_rejection
             )
+            has_experience_ineligibility = any(
+                "Experience Ineligible" in r for r in evaluation.reasons_for_rejection
+            )
+            is_ineligible = has_location_ineligibility or has_experience_ineligibility
+
             is_matching = (
                 evaluation.match_score >= max(50, threshold - 15)
-                and not has_location_ineligibility
+                and not is_ineligible
             )
             is_shortlisted = bool(
                 evaluation.match_score >= threshold
                 and evaluation.shortlisted
-                and not has_location_ineligibility
+                and not is_ineligible
             )
 
             if existing_match is not None:
@@ -245,10 +252,13 @@ class JobMatchingAgent:
             "3. Location compliance is mandatory: Candidate is based in India. If the job is on-site "
             "or hybrid in an international location (e.g. Germany, USA, UK) or restricted to non-India residents, "
             "it is INELIGIBLE. Set match_score <= 25, shortlisted = false, and include 'Location Ineligible' in reasons_for_rejection.\n"
-            "4. Never treat a missing keyword as proof that the candidate lacks a skill; list it in "
+            f"4. Experience compliance is mandatory: Candidate experience level is '{preference.experience_level or 'Entry-level'}'. "
+            "If the role requires lead, principal, senior, or significantly higher years of experience than candidate's level, "
+            "it is INELIGIBLE. Set match_score <= 25, shortlisted = false, and include 'Experience Ineligible' in reasons_for_rejection.\n"
+            "5. Never treat a missing keyword as proof that the candidate lacks a skill; list it in "
             "`missing_or_unverified_requirements` as an unverified requirement.\n"
-            "5. Set `shortlisted` to true ONLY if `match_score` >= the configured threshold AND location is eligible.\n"
-            "6. Return valid JSON matching the schema."
+            "6. Set `shortlisted` to true ONLY if `match_score` >= the configured threshold AND both location and experience are eligible.\n"
+            "7. Return valid JSON matching the schema."
         )
         user_prompt = json.dumps(
             {
@@ -299,13 +309,24 @@ class JobMatchingAgent:
             job_description=job.description,
             raw_metadata=job.raw_metadata,
         )
+        exp_elig = evaluate_experience_eligibility(
+            job_title=job.title,
+            job_description=job.description,
+            preference_experience_level=preference.experience_level or "Entry-level",
+        )
         if not loc_elig.is_eligible:
             result.shortlisted = False
             result.match_score = min(result.match_score, 25)
             result.reasons_for_rejection.insert(
                 0, f"Location Ineligible: {loc_elig.reason}"
             )
-        else:
+        if not exp_elig.is_eligible:
+            result.shortlisted = False
+            result.match_score = min(result.match_score, 25)
+            result.reasons_for_rejection.insert(
+                0, f"Experience Ineligible: {exp_elig.reason}"
+            )
+        if loc_elig.is_eligible and exp_elig.is_eligible:
             result.shortlisted = bool(result.match_score >= threshold)
         return result
 
@@ -334,9 +355,10 @@ class JobMatchingAgent:
 
         # 1. Role alignment (up to 35 points)
         role_score = 0
+        expanded_target_roles = expand_job_roles(preference.job_roles or [])
         matched_roles = [
             role
-            for role in (preference.job_roles or [])
+            for role in expanded_target_roles
             if role.lower() in job_title_lower
             or any(
                 token in job_title_lower
@@ -349,7 +371,7 @@ class JobMatchingAgent:
             reasons_for_matching.append(
                 f"Job title aligns with target role(s): {', '.join(matched_roles[:2])}."
             )
-        elif any(role.lower() in job_desc_lower for role in (preference.job_roles or [])):
+        elif any(role.lower() in job_desc_lower for role in expanded_target_roles):
             role_score = 22
             reasons_for_matching.append(
                 "Target role responsibilities appear in the job description."
@@ -413,7 +435,20 @@ class JobMatchingAgent:
                 f"Location compatible: {loc_elig.matched_location or job.location or 'India/Remote'} ({loc_elig.reason})"
             )
 
-        # 4. Salary & Resume Verification (up to 10 points)
+        # 4. Experience alignment (Mandatory Eligibility Check)
+        exp_elig = evaluate_experience_eligibility(
+            job_title=job.title,
+            job_description=job.description,
+            preference_experience_level=preference.experience_level or "Entry-level",
+        )
+        if not exp_elig.is_eligible:
+            reasons_for_rejection.append(f"Experience Ineligible: {exp_elig.reason}")
+        else:
+            reasons_for_matching.append(
+                f"Experience compatible: {preference.experience_level or 'Entry-level'} (Detected: {exp_elig.detected_tier})"
+            )
+
+        # 5. Salary & Resume Verification (up to 10 points)
         qual_score = 5
         if resume_version is not None:
             qual_score = 10
@@ -436,9 +471,8 @@ class JobMatchingAgent:
             )
 
         raw_score = role_score + skill_score + loc_score + qual_score
-        if not loc_elig.is_eligible:
-            # Enforce Requirement 6: Location compatibility is a mandatory eligibility check.
-            # Ineligible location caps score at 25 and strictly prevents shortlisting.
+        if not loc_elig.is_eligible or not exp_elig.is_eligible:
+            # Enforce Mandatory Eligibility: Ineligible location or experience caps score at 25 and strictly prevents shortlisting.
             total_score = min(raw_score, 25)
             shortlisted = False
         else:

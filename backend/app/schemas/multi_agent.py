@@ -134,6 +134,18 @@ class JobMatchResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobDiscoverySummaryResponse(BaseModel):
+    """Aggregated summary of discovered, evaluated, matching, and excluded job listings."""
+
+    total_discovered: int
+    total_evaluated: int
+    matching_count: int
+    shortlisted_count: int
+    location_ineligible_count: int
+    experience_ineligible_count: int
+    sources: List[JobSourceResponse] = Field(default_factory=list)
+
+
 # ==============================================================================
 # Applications & Tracking (Agents 4 & 5)
 # ==============================================================================

@@ -3,7 +3,9 @@
 from app.services.agents.agent1_discovery import (
     ArbeitnowPublicAPIAdapter,
     BaseJobSourceAdapter,
+    GreenhouseOfficialCompanyAdapter,
     JobDiscoveryAgent,
+    JobicyRemoteAPIAdapter,
     RawDiscoveredJobItem,
     RemotiveOfficialAPIAdapter,
     compute_job_fingerprint,
@@ -21,6 +23,8 @@ agent3_routes = ApplicationRouteDiscoveryAgent()
 __all__ = [
     "BaseJobSourceAdapter",
     "RawDiscoveredJobItem",
+    "GreenhouseOfficialCompanyAdapter",
+    "JobicyRemoteAPIAdapter",
     "RemotiveOfficialAPIAdapter",
     "ArbeitnowPublicAPIAdapter",
     "JobDiscoveryAgent",

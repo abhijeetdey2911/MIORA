@@ -299,11 +299,15 @@ class CentralOrchestrator:
             )
             state["discovered_job_ids"] = [str(j.id) for j in discovered_jobs]
             state["jobs_discovered_count"] = len(discovered_jobs)
+            source_summary = getattr(discovery_agent, "last_source_summary", {})
             return (
                 state,
                 len(discovered_jobs),
                 0.0,
-                {"discovered_count": len(discovered_jobs)},
+                {
+                    "discovered_count": len(discovered_jobs),
+                    "source_summary": source_summary,
+                },
             )
 
         def run_agent_2(

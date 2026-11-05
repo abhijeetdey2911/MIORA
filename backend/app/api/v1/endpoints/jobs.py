@@ -5,7 +5,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -19,6 +19,7 @@ from app.models.job_preference import JobPreference
 from app.schemas.multi_agent import (
     ApplicationRouteResponse,
     DiscoveredJobResponse,
+    JobDiscoverySummaryResponse,
     JobMatchResponse,
     JobSourceResponse,
 )
@@ -70,6 +71,50 @@ def toggle_job_source(
     db.commit()
     db.refresh(src)
     return JobSourceResponse.model_validate(src)
+
+
+@router.get(
+    "/summary",
+    response_model=JobDiscoverySummaryResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Aggregated Job Discovery & Matching Statistics",
+)
+def get_jobs_summary(
+    preference_id: Optional[UUID] = Query(default=None),
+    db: Session = Depends(get_db),
+) -> JobDiscoverySummaryResponse:
+    sources = agent1_discovery.ensure_default_sources(db)
+    total_discovered = db.scalar(select(func.count(DiscoveredJob.id))) or 0
+
+    match_stmt = select(JobMatch)
+    if preference_id:
+        match_stmt = match_stmt.where(JobMatch.preference_id == preference_id)
+
+    matches = list(db.scalars(match_stmt).all())
+    total_evaluated = len(matches)
+    matching_count = sum(1 for m in matches if m.is_matching)
+    shortlisted_count = sum(1 for m in matches if m.shortlisted)
+
+    loc_ineligible = sum(
+        1
+        for m in matches
+        if any("Location Ineligible" in r for r in (m.reasons_for_rejection or []))
+    )
+    exp_ineligible = sum(
+        1
+        for m in matches
+        if any("Experience Ineligible" in r for r in (m.reasons_for_rejection or []))
+    )
+
+    return JobDiscoverySummaryResponse(
+        total_discovered=total_discovered,
+        total_evaluated=total_evaluated,
+        matching_count=matching_count,
+        shortlisted_count=shortlisted_count,
+        location_ineligible_count=loc_ineligible,
+        experience_ineligible_count=exp_ineligible,
+        sources=[JobSourceResponse.model_validate(s) for s in sources],
+    )
 
 
 @router.get(

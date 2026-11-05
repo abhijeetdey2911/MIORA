@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
+  AlertCircle,
+  Briefcase,
   CheckCircle2,
   ExternalLink,
   Filter,
@@ -13,18 +15,25 @@ import {
   UserCheck,
 } from 'lucide-react';
 import {
+  getJobsSummary,
   listJobMatches,
   listJobSources,
+  toggleJobSource,
   toggleMatchShortlist,
 } from '../services/multiAgentService';
 import { getPreferences } from '../services/preferenceService';
-import type { JobMatchItem, JobSourceItem } from '../types/multiAgent';
+import type {
+  JobDiscoverySummary,
+  JobMatchItem,
+  JobSourceItem,
+} from '../types/multiAgent';
 import type { JobPreference } from '../types/preference';
 
 export function JobsDiscoveryPage() {
   const [matches, setMatches] = useState<JobMatchItem[]>([]);
   const [preferences, setPreferences] = useState<JobPreference[]>([]);
   const [sources, setSources] = useState<JobSourceItem[]>([]);
+  const [summary, setSummary] = useState<JobDiscoverySummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const [selectedPreferenceId, setSelectedPreferenceId] = useState<string>('');
@@ -46,12 +55,16 @@ export function JobsDiscoveryPage() {
       }),
       getPreferences(),
       listJobSources(),
+      getJobsSummary({
+        preference_id: selectedPreferenceId || undefined,
+      }),
     ])
-      .then(([matchRows, prefRows, srcRows]) => {
+      .then(([matchRows, prefRows, srcRows, summaryData]) => {
         if (!cancelled) {
           setMatches(matchRows);
           setPreferences(prefRows);
           setSources(srcRows);
+          setSummary(summaryData);
           setLoading(false);
         }
       })
@@ -94,8 +107,144 @@ export function JobsDiscoveryPage() {
     }
   };
 
+  const handleToggleSource = async (
+    sourceId: string,
+    currentEnabled: boolean,
+  ) => {
+    try {
+      const updated = await toggleJobSource(sourceId, !currentEnabled);
+      setSources((prev) =>
+        prev.map((s) => (s.id === updated.id ? updated : s)),
+      );
+      if (summary) {
+        setSummary({
+          ...summary,
+          sources: summary.sources.map((s) =>
+            s.id === updated.id ? updated : s,
+          ),
+        });
+      }
+    } catch {
+      // Ignore toggle error
+    }
+  };
+
+  // Metrics calculation
+  const totalDiscovered = summary?.total_discovered ?? matches.length;
+  const totalEvaluated = summary?.total_evaluated ?? matches.length;
+  const matchingCount =
+    summary?.matching_count ?? matches.filter((m) => m.is_matching).length;
+  const shortlistedCount =
+    summary?.shortlisted_count ?? matches.filter((m) => m.shortlisted).length;
+  const locIneligibleCount =
+    summary?.location_ineligible_count ??
+    matches.filter((m) =>
+      m.reasons_for_rejection.some((r) => r.includes('Location Ineligible')),
+    ).length;
+  const expIneligibleCount =
+    summary?.experience_ineligible_count ??
+    matches.filter((m) =>
+      m.reasons_for_rejection.some((r) => r.includes('Experience Ineligible')),
+    ).length;
+
   return (
     <div className="space-y-4">
+      {/* Metrics Bar */}
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-muted">Discovered</p>
+          <p className="mt-1 text-xl font-bold text-ink">{totalDiscovered}</p>
+          <span className="text-[10px] text-muted">Total scraped listings</span>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-muted">Evaluated</p>
+          <p className="mt-1 text-xl font-bold text-ink">{totalEvaluated}</p>
+          <span className="text-[10px] text-muted">AI & rule analyzed</span>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400">
+            Matching / Eligible
+          </p>
+          <p className="mt-1 text-xl font-bold text-emerald-600 dark:text-emerald-400">
+            {matchingCount}
+          </p>
+          <span className="text-[10px] text-muted">Eligible for role & city</span>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-violet-600 dark:text-violet-400">
+            Shortlisted
+          </p>
+          <p className="mt-1 text-xl font-bold text-violet-600 dark:text-violet-400">
+            {shortlistedCount}
+          </p>
+          <span className="text-[10px] text-muted">Ready for route discovery</span>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-rose-500">
+            Location Ineligible
+          </p>
+          <p className="mt-1 text-xl font-bold text-rose-500">
+            {locIneligibleCount}
+          </p>
+          <span className="text-[10px] text-muted">Excluded by location mode</span>
+        </div>
+
+        <div className="rounded-2xl border border-line bg-surface p-3 shadow-card">
+          <p className="text-[11px] font-medium text-amber-500">
+            Experience Ineligible
+          </p>
+          <p className="mt-1 text-xl font-bold text-amber-500">
+            {expIneligibleCount}
+          </p>
+          <span className="text-[10px] text-muted">Seniority level mismatch</span>
+        </div>
+      </section>
+
+      {/* Source Adapters Status Pills */}
+      <section className="rounded-2xl border border-line bg-surface p-3.5 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold text-ink">
+            <Globe className="h-3.5 w-3.5 text-accent" />
+            <span>Configured Job Discovery Source Adapters</span>
+          </div>
+          <span className="text-[11px] text-muted">
+            Click any adapter pill to toggle enabled/disabled
+          </span>
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          {sources.map((src) => (
+            <button
+              key={src.id}
+              type="button"
+              onClick={() => handleToggleSource(src.id, src.is_enabled)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-1.5 text-xs font-medium transition ${
+                src.is_enabled
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-line bg-surface-2 text-muted opacity-60 hover:opacity-100'
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  src.is_enabled ? 'bg-emerald-500 animate-pulse' : 'bg-muted'
+                }`}
+              />
+              <span className="font-semibold">{src.name}</span>
+              <span className="text-[10px] text-muted">
+                ({src.adapter_type})
+              </span>
+              <span className="rounded-md border border-line/60 bg-surface px-1.5 py-0.2 text-[9px] font-semibold text-ink">
+                {src.is_enabled ? 'Active' : 'Disabled'}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+
       {/* Filters Bar */}
       <section className="rounded-2xl border border-line bg-surface p-4 shadow-card">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -206,6 +355,11 @@ export function JobsDiscoveryPage() {
               <span className="text-muted">
                 Preferred Cities: {selectedPreference.locations.join(', ')}
               </span>
+              {selectedPreference.experience_level && (
+                <span className="ml-2 rounded-md border border-line bg-surface px-2 py-0.5 text-[11px] font-semibold text-ink">
+                  Target Level: {selectedPreference.experience_level}
+                </span>
+              )}
             </div>
             <span className="text-[11px] text-muted">
               {selectedPreference.location_mode === 'SELECTED_LOCATIONS_ONLY'
@@ -238,6 +392,13 @@ export function JobsDiscoveryPage() {
           {filteredMatches.map((match) => {
             const job = match.discovered_job;
             const isExpanded = expandedMatchId === match.id;
+            const hasLocationIneligible = match.reasons_for_rejection.some(
+              (r) => r.includes('Location Ineligible'),
+            );
+            const hasExperienceIneligible = match.reasons_for_rejection.some(
+              (r) => r.includes('Experience Ineligible'),
+            );
+
             return (
               <article
                 key={match.id}
@@ -255,6 +416,12 @@ export function JobsDiscoveryPage() {
                       <span className="rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-muted">
                         {match.preference_name || 'Preference'}
                       </span>
+                      {job.experience_requirement && (
+                        <span className="inline-flex items-center gap-1 rounded-md border border-line bg-surface-2 px-2 py-0.5 text-[10px] font-medium text-ink">
+                          <Briefcase className="h-3 w-3 text-subtle" />
+                          {job.experience_requirement}
+                        </span>
+                      )}
                     </div>
 
                     <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-muted">
@@ -293,10 +460,26 @@ export function JobsDiscoveryPage() {
                   </div>
 
                   <div className="flex shrink-0 flex-wrap items-center gap-2 sm:flex-col sm:items-end">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {hasLocationIneligible && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 px-2.5 py-1 text-xs font-semibold text-rose-500">
+                          <AlertCircle className="h-3 w-3" />
+                          Location Ineligible
+                        </span>
+                      )}
+
+                      {hasExperienceIneligible && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                          <AlertCircle className="h-3 w-3" />
+                          Experience Ineligible
+                        </span>
+                      )}
+
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                          match.match_score >= match.threshold_used
+                          hasLocationIneligible || hasExperienceIneligible
+                            ? 'bg-rose-500/10 text-rose-500'
+                            : match.match_score >= match.threshold_used
                             ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-300'
                             : 'bg-amber-500/10 text-amber-600 dark:bg-amber-400/15 dark:text-amber-300'
                         }`}
@@ -308,9 +491,14 @@ export function JobsDiscoveryPage() {
                       <button
                         type="button"
                         onClick={() => handleToggleShortlist(match)}
+                        disabled={
+                          hasLocationIneligible || hasExperienceIneligible
+                        }
                         className={`inline-flex items-center gap-1 rounded-xl border px-2.5 py-1 text-xs font-medium transition ${
                           match.shortlisted
                             ? 'border-violet-500/30 bg-violet-500/10 text-violet-600 dark:text-violet-300'
+                            : hasLocationIneligible || hasExperienceIneligible
+                            ? 'border-line/40 bg-surface-2 text-subtle opacity-50 cursor-not-allowed'
                             : 'border-line bg-surface-2 text-muted hover:text-ink'
                         }`}
                       >

@@ -23,7 +23,9 @@ from sqlalchemy.orm import Session
 
 from app.models.job_preference import JobPreference
 from app.models.multi_agent import DiscoveredJob, JobSource
+from app.services.experience_matcher import evaluate_experience_eligibility
 from app.services.location_matcher import evaluate_location_eligibility
+from app.services.role_synonyms import expand_job_roles
 
 logger = logging.getLogger("jobhunter.agent1_discovery")
 
@@ -36,6 +38,12 @@ TRACKING_QUERY_PARAMS = {
     "ref",
     "gh_src",
     "source",
+    "session",
+    "sid",
+    "fbclid",
+    "gclid",
+    "trk",
+    "tracking",
 }
 
 
@@ -185,6 +193,14 @@ class RemotiveOfficialAPIAdapter(BaseJobSourceAdapter):
             if not loc_elig.is_eligible:
                 continue
 
+            exp_elig = evaluate_experience_eligibility(
+                job_title=title,
+                job_description=description,
+                preference_experience_level=preference.experience_level or "Entry-level",
+            )
+            if not exp_elig.is_eligible:
+                continue
+
             posted_at: Optional[datetime] = None
             pub_date = item.get("publication_date")
             if isinstance(pub_date, str) and pub_date.strip():
@@ -291,6 +307,14 @@ class ArbeitnowPublicAPIAdapter(BaseJobSourceAdapter):
             if not loc_elig.is_eligible:
                 continue
 
+            exp_elig = evaluate_experience_eligibility(
+                job_title=title,
+                job_description=description,
+                preference_experience_level=preference.experience_level or "Entry-level",
+            )
+            if not exp_elig.is_eligible:
+                continue
+
             created_ts = item.get("created_at")
             posted_at = (
                 datetime.fromtimestamp(int(created_ts), tz=timezone.utc)
@@ -320,6 +344,232 @@ class ArbeitnowPublicAPIAdapter(BaseJobSourceAdapter):
         return results
 
 
+class GreenhouseOfficialCompanyAdapter(BaseJobSourceAdapter):
+    """Official Greenhouse Public ATS Boards adapter for verified tech employers with India & Remote presence."""
+
+    source_name = "Greenhouse Official Company Boards"
+    adapter_type = "greenhouse_api"
+    base_url = "https://boards-api.greenhouse.io/v1/boards"
+
+    DEFAULT_COMPANIES = [
+        "inmobi",
+        "datadog",
+        "stripe",
+        "elastic",
+        "twilio",
+        "rubrik",
+        "pinterest",
+        "groww",
+        "thoughtworks",
+        "mongodb",
+    ]
+
+    def __init__(self, companies: Optional[List[str]] = None) -> None:
+        self.companies = companies or self.DEFAULT_COMPANIES
+
+    def fetch_jobs(
+        self,
+        preference: JobPreference,
+        max_results: int = 25,
+    ) -> List[RawDiscoveredJobItem]:
+        results: List[RawDiscoveredJobItem] = []
+        target_roles = [r.lower() for r in (preference.job_roles or [])]
+        expanded_roles = [r.lower() for r in expand_job_roles(preference.job_roles or [])]
+        skill_keywords = [s.lower() for s in (preference.skills or [])]
+
+        with httpx.Client(timeout=6.0) as client:
+            for company_slug in self.companies:
+                try:
+                    url = f"{self.base_url}/{company_slug}/jobs?content=true"
+                    resp = client.get(url)
+                    if resp.status_code != 200:
+                        continue
+                    payload = resp.json()
+                    raw_jobs = payload.get("jobs") or []
+                except Exception as exc:
+                    logger.debug("Greenhouse board '%s' fetch error: %s", company_slug, exc)
+                    continue
+
+                for item in raw_jobs:
+                    title = (item.get("title") or "").strip()
+                    loc_name = ((item.get("location") or {}).get("name") or "").strip()
+                    abs_url = (item.get("absolute_url") or "").strip()
+                    desc = _strip_html(item.get("content") or "")
+                    if not (title and abs_url):
+                        continue
+
+                    # Role & skill matching
+                    title_lower = title.lower()
+                    desc_lower = desc.lower()
+                    matches_role = (
+                        not target_roles
+                        or any(tr in title_lower for tr in expanded_roles)
+                        or any(
+                            token in title_lower
+                            for tr in target_roles
+                            for token in tr.split()
+                            if len(token) > 3
+                        )
+                    )
+                    matches_skill = not skill_keywords or any(
+                        sk in desc_lower for sk in skill_keywords
+                    )
+                    if not (matches_role or matches_skill):
+                        continue
+
+                    # Location eligibility check
+                    loc_elig = evaluate_location_eligibility(
+                        job_location=loc_name,
+                        job_work_mode="Remote" if "remote" in loc_name.lower() else "On-site",
+                        preference_locations=preference.locations or [],
+                        location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                        preference_work_mode=preference.work_mode,
+                        job_description=desc,
+                        raw_metadata={"verified_portal": True, "ats": "greenhouse"},
+                    )
+                    if not loc_elig.is_eligible:
+                        continue
+
+                    # Experience eligibility check
+                    exp_elig = evaluate_experience_eligibility(
+                        job_title=title,
+                        job_description=desc,
+                        preference_experience_level=preference.experience_level or "Entry-level",
+                    )
+                    if not exp_elig.is_eligible:
+                        continue
+
+                    company_display = company_slug.replace("-", " ").title()
+                    work_mode = (
+                        "Remote"
+                        if "remote" in loc_name.lower()
+                        else ("Hybrid" if "hybrid" in loc_name.lower() else "On-site")
+                    )
+
+                    results.append(
+                        RawDiscoveredJobItem(
+                            source_name=self.source_name,
+                            external_job_id=str(item.get("id")),
+                            title=title[:250],
+                            company=company_display[:200],
+                            description=desc,
+                            official_job_url=abs_url,
+                            location=loc_name or None,
+                            work_mode=work_mode,
+                            employment_type="Full-time",
+                            experience_requirement=exp_elig.required_years,
+                            posted_at=datetime.now(timezone.utc),
+                            raw_metadata={
+                                "verified_portal": True,
+                                "ats": "greenhouse",
+                                "company_key": company_slug,
+                                "seniority_tier": exp_elig.detected_tier,
+                            },
+                        )
+                    )
+                    if len(results) >= max_results:
+                        return results
+
+        return results
+
+
+class JobicyRemoteAPIAdapter(BaseJobSourceAdapter):
+    """Official Jobicy Remote Public API adapter (`https://jobicy.com/api/v2/remote-jobs`)."""
+
+    source_name = "Jobicy Remote Tech API"
+    adapter_type = "jobicy_api"
+    base_url = "https://jobicy.com/api/v2/remote-jobs"
+
+    def fetch_jobs(
+        self,
+        preference: JobPreference,
+        max_results: int = 25,
+    ) -> List[RawDiscoveredJobItem]:
+        results: List[RawDiscoveredJobItem] = []
+        target_role = (preference.job_roles[0] if preference.job_roles else "").strip()
+        params: Dict[str, Any] = {"count": max(15, min(max_results * 2, 50))}
+        if target_role:
+            params["tag"] = target_role.split()[0].lower()
+
+        try:
+            with httpx.Client(timeout=10.0) as client:
+                response = client.get(
+                    self.base_url,
+                    params=params,
+                    headers={"User-Agent": "JobHunter-Platform/1.0"},
+                )
+                if response.status_code != 200:
+                    return []
+                payload = response.json()
+        except Exception as exc:
+            logger.info(
+                "Jobicy API unreachable or timed out (%s); returning 0 items.",
+                type(exc).__name__,
+            )
+            return []
+
+        raw_jobs = payload.get("jobs") or []
+        for item in raw_jobs:
+            url = (item.get("url") or "").strip()
+            title = (item.get("jobTitle") or "").strip()
+            company = (item.get("companyName") or "").strip()
+            description = _strip_html(item.get("jobDescription") or "")
+            if not (url and title and company and description):
+                continue
+
+            geo = (item.get("jobGeo") or "").strip()
+            loc_elig = evaluate_location_eligibility(
+                job_location=geo or "Remote",
+                job_work_mode="Remote",
+                preference_locations=preference.locations or [],
+                location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                preference_work_mode=preference.work_mode,
+                job_description=description,
+                raw_metadata={"candidate_required_location": geo},
+            )
+            if not loc_elig.is_eligible:
+                continue
+
+            exp_elig = evaluate_experience_eligibility(
+                job_title=title,
+                job_description=description,
+                preference_experience_level=preference.experience_level or "Entry-level",
+            )
+            if not exp_elig.is_eligible:
+                continue
+
+            posted_at = None
+            pub_date = item.get("pubDate")
+            if isinstance(pub_date, str) and pub_date.strip():
+                try:
+                    posted_at = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                except ValueError:
+                    posted_at = None
+
+            results.append(
+                RawDiscoveredJobItem(
+                    source_name=self.source_name,
+                    external_job_id=str(item.get("id")) if item.get("id") else None,
+                    title=title[:250],
+                    company=company[:200],
+                    description=description,
+                    official_job_url=url,
+                    location=geo or "Remote",
+                    work_mode="Remote",
+                    employment_type="Full-time",
+                    experience_requirement=exp_elig.required_years,
+                    posted_at=posted_at,
+                    raw_metadata={
+                        "seniority_tier": exp_elig.detected_tier,
+                        "jobGeo": geo,
+                    },
+                )
+            )
+            if len(results) >= max_results:
+                break
+        return results
+
+
 class JobDiscoveryAgent:
     """Agent 1: Coordinates job source adapters and deduplicates discovered jobs in PostgreSQL."""
 
@@ -331,15 +581,28 @@ class JobDiscoveryAgent:
             adapters
             if adapters is not None
             else [
+                GreenhouseOfficialCompanyAdapter(),
+                JobicyRemoteAPIAdapter(),
                 RemotiveOfficialAPIAdapter(),
                 ArbeitnowPublicAPIAdapter(),
             ]
         )
+        self.last_source_summary: Dict[str, Dict[str, Any]] = {}
 
     @staticmethod
     def ensure_default_sources(db: Session) -> List[JobSource]:
         """Ensure default permitted job source rows exist in PostgreSQL."""
         defaults = [
+            (
+                "Greenhouse Official Company Boards",
+                "greenhouse_api",
+                "https://boards-api.greenhouse.io/v1/boards",
+            ),
+            (
+                "Jobicy Remote Tech API",
+                "jobicy_api",
+                "https://jobicy.com/api/v2/remote-jobs",
+            ),
             (
                 "Remotive Official API",
                 "remotive_api",
@@ -384,21 +647,53 @@ class JobDiscoveryAgent:
 
         collected_raw: List[RawDiscoveredJobItem] = []
         per_adapter_limit = max(5, max_jobs // max(1, len(self.adapters)))
+        successful_adapters = 0
+        adapter_errors: List[Exception] = []
 
         for adapter in self.adapters:
             source_row = source_by_name.get(adapter.source_name)
             if source_row and not source_row.is_enabled:
+                self.last_source_summary[adapter.source_name] = {
+                    "status": "disabled",
+                    "jobs_count": 0,
+                    "error_message": None,
+                }
                 continue
 
-            fetched = adapter.fetch_jobs(
-                preference=preference,
-                max_results=per_adapter_limit,
-            )
-            if source_row:
-                source_row.last_synced_at = datetime.now(timezone.utc)
-            collected_raw.extend(fetched)
+            try:
+                fetched = adapter.fetch_jobs(
+                    preference=preference,
+                    max_results=per_adapter_limit,
+                )
+                if source_row:
+                    source_row.last_synced_at = datetime.now(timezone.utc)
+                self.last_source_summary[adapter.source_name] = {
+                    "status": "success" if fetched else "no_jobs_found",
+                    "jobs_count": len(fetched),
+                    "error_message": None,
+                }
+                collected_raw.extend(fetched)
+                successful_adapters += 1
+            except Exception as exc:
+                logger.error(
+                    "Job source adapter '%s' execution failed: %s",
+                    adapter.source_name,
+                    exc,
+                    exc_info=True,
+                )
+                self.last_source_summary[adapter.source_name] = {
+                    "status": "failed",
+                    "jobs_count": 0,
+                    "error_message": str(exc),
+                }
+                adapter_errors.append(exc)
+
             if len(collected_raw) >= max_jobs:
                 break
+
+        # If all attempted adapters failed (0 succeeded) and errors occurred, re-raise
+        if adapter_errors and successful_adapters == 0:
+            raise adapter_errors[0]
 
         persisted_jobs: List[DiscoveredJob] = []
         seen_urls: set[str] = set()
@@ -442,7 +737,8 @@ class JobDiscoveryAgent:
             ).first()
 
             if existing is not None:
-                persisted_jobs.append(existing)
+                if existing not in persisted_jobs:
+                    persisted_jobs.append(existing)
                 continue
 
             source_row = source_by_name.get(raw.source_name)

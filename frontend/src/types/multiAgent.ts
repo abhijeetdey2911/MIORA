@@ -90,6 +90,16 @@ export interface JobMatchItem {
   updated_at: string;
 }
 
+export interface JobDiscoverySummary {
+  total_discovered: number;
+  total_evaluated: number;
+  matching_count: number;
+  shortlisted_count: number;
+  location_ineligible_count: number;
+  experience_ineligible_count: number;
+  sources: JobSourceItem[];
+}
+
 export interface ApplicationStatusHistoryItem {
   id: string;
   application_id: string;

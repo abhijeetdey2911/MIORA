@@ -4,6 +4,7 @@ import type {
   AutomationSettingsData,
   DashboardOverviewData,
   DiscoveredJobItem,
+  JobDiscoverySummary,
   JobMatchItem,
   JobSourceItem,
   NotificationItem,
@@ -169,6 +170,15 @@ export async function listWorkflowRuns(
 
 export async function listJobSources(): Promise<JobSourceItem[]> {
   return requestJson<JobSourceItem[]>(`${JOBS_API}/sources`);
+}
+
+export async function getJobsSummary(params?: {
+  preference_id?: string;
+}): Promise<JobDiscoverySummary> {
+  const qs = new URLSearchParams();
+  if (params?.preference_id) qs.set('preference_id', params.preference_id);
+  const suffix = qs.toString() ? `?${qs.toString()}` : '';
+  return requestJson<JobDiscoverySummary>(`${JOBS_API}/summary${suffix}`);
 }
 
 export async function toggleJobSource(

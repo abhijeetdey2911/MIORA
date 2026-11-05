@@ -32,6 +32,7 @@ OFFICIAL_ATS_DOMAINS = (
     "bamboohr.com",
     "remotive.com",
     "arbeitnow.com",
+    "jobicy.com",
 )
 
 # Matches only explicitly published application emails in job descriptions (never guessed)
