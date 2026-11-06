@@ -26,3 +26,13 @@ def guard_production_database():
         raise RuntimeError(
             "CRITICAL SAFETY VIOLATION: Test suite execution is strictly prohibited in PRODUCTION environment!"
         )
+    db_url = (settings.DATABASE_URL or "").lower()
+    server = (settings.POSTGRES_SERVER or "").lower()
+    if "13.233.65.237" in db_url or "miora-db" in db_url or "13.233.65.237" in server:
+        raise RuntimeError(
+            "CRITICAL SAFETY VIOLATION: Test connection to production database is strictly prohibited!"
+        )
+    if settings.POSTGRES_DB == "miora" and settings.POSTGRES_USER == "miora_user":
+        raise RuntimeError(
+            "CRITICAL SAFETY VIOLATION: Test connection to production database credentials is strictly prohibited!"
+        )
