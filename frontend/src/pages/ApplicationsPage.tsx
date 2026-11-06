@@ -2,10 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   AlertTriangle,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   Eye,
   FileCheck,
+  FileText,
+  ListChecks,
   RotateCcw,
   Search,
   Send,
@@ -92,6 +96,8 @@ export function ApplicationsPage() {
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   const [selectedApp, setSelectedApp] = useState<ApplicationItem | null>(null);
+  const [activeDetailTab, setActiveDetailTab] = useState<'package' | 'audit'>('package');
+  const [copiedCoverLetter, setCopiedCoverLetter] = useState<boolean>(false);
 
   // Approval Modal State
   const [approvingApp, setApprovingApp] = useState<ApplicationItem | null>(
@@ -909,154 +915,307 @@ export function ApplicationsPage() {
               </button>
             </div>
 
-            {/* Section 1: User Approval Audit */}
-            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5 text-xs">
-              <div className="flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400">
-                <ShieldCheck className="h-4 w-4" />
-                <span>1. User Manual Approval Audit</span>
-              </div>
-              <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <div>
-                  <span className="text-muted block text-[11px]">Approved By User:</span>
-                  <span className="font-semibold text-ink">
-                    {selectedApp.approved_by_user ? 'Yes (Authorized)' : 'Pending User Approval'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Approved At:</span>
-                  <span className="font-medium text-ink">
-                    {selectedApp.approved_at
-                      ? new Date(selectedApp.approved_at).toLocaleString()
-                      : 'Not approved'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Internal Approval Reference:</span>
-                  <span className="font-mono text-ink text-[11px]">
-                    {selectedApp.approval_reference || 'None'}
-                  </span>
-                </div>
-              </div>
+            {/* Modal Tabs */}
+            <div className="mt-4 flex items-center gap-2 border-b border-line pb-2">
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab('package')}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  activeDetailTab === 'package'
+                    ? 'bg-brand/10 text-brand font-bold'
+                    : 'text-muted hover:bg-surface-2 hover:text-ink'
+                }`}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Tailored Application Package
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveDetailTab('audit')}
+                className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+                  activeDetailTab === 'audit'
+                    ? 'bg-brand/10 text-brand font-bold'
+                    : 'text-muted hover:bg-surface-2 hover:text-ink'
+                }`}
+              >
+                <ShieldCheck className="h-3.5 w-3.5" />
+                Approval & Confirmation Audit
+              </button>
             </div>
 
-            {/* Section 2: External Submission & Employer Confirmation */}
-            <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-xs">
-              <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
-                <Send className="h-4 w-4" />
-                <span>2. External Employer Submission & Confirmation</span>
-              </div>
-              <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                <div>
-                  <span className="text-muted block text-[11px]">Current Status:</span>
-                  <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusBadgeClass(selectedApp.status)}`}>
-                    {selectedApp.status}
-                  </span>
+            {activeDetailTab === 'package' ? (
+              <div className="mt-4 space-y-4 text-xs">
+                {/* 1. Tailored Cover Letter */}
+                <div className="rounded-xl border border-line bg-surface-2 p-4">
+                  <div className="flex items-center justify-between gap-2 border-b border-line pb-2.5">
+                    <div className="flex items-center gap-1.5 font-semibold text-ink">
+                      <FileText className="h-4 w-4 text-brand" />
+                      <span>Role-Tailored Cover Letter</span>
+                    </div>
+                    {Boolean(selectedApp.prepared_payload?.cover_letter) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            String(selectedApp.prepared_payload?.cover_letter || '')
+                          );
+                          setCopiedCoverLetter(true);
+                          setTimeout(() => setCopiedCoverLetter(false), 2000);
+                        }}
+                        className="inline-flex items-center gap-1 rounded-lg border border-line bg-surface px-2.5 py-1 text-[11px] font-medium text-ink shadow-sm hover:bg-surface-2"
+                      >
+                        {copiedCoverLetter ? (
+                          <>
+                            <Check className="h-3 w-3 text-emerald-500" />
+                            <span className="text-emerald-600 dark:text-emerald-400 font-semibold">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-3 w-3 text-muted" />
+                            <span>Copy Letter</span>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {selectedApp.prepared_payload?.cover_letter ? (
+                    <div className="mt-3 whitespace-pre-wrap font-sans text-ink leading-relaxed text-[12px] bg-surface rounded-lg p-3 border border-line">
+                      {String(selectedApp.prepared_payload.cover_letter)}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-muted italic">
+                      Cover letter will be prepared automatically upon package assembly.
+                    </p>
+                  )}
                 </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Submission Attempted:</span>
-                  <span className="font-medium text-ink">
-                    {selectedApp.submission_attempted_at
-                      ? new Date(selectedApp.submission_attempted_at).toLocaleString()
-                      : 'Not attempted'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Confirmed Applied At:</span>
-                  <span className="font-medium text-ink">
-                    {selectedApp.applied_at
-                      ? new Date(selectedApp.applied_at).toLocaleString()
-                      : 'Not confirmed'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">External Confirmation Evidence:</span>
-                  <span className="font-mono text-emerald-600 dark:text-emerald-400 font-medium">
-                    {selectedApp.confirmation_evidence || 'None'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">External Application ID:</span>
-                  <span className="font-mono text-ink">
-                    {selectedApp.external_application_id || 'Not returned'}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-muted block text-[11px]">Submission Outcome:</span>
-                  <span className="font-medium text-ink capitalize">
-                    {selectedApp.submission_result || 'N/A'}
-                  </span>
-                </div>
-              </div>
-              {selectedApp.error_message && (
-                <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-rose-600 dark:text-rose-300">
-                  <span className="font-semibold">Error Message:</span> {selectedApp.error_message}
-                </div>
-              )}
-            </div>
 
-            {/* Section 3: Route & Follow-Up Reminders */}
-            <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-line bg-surface-2 p-3 text-xs">
-              <div>
-                <span className="text-muted">Route Type:</span>{' '}
-                <span className="font-medium capitalize text-ink">
-                  {selectedApp.route_type.replace(/_/g, ' ')}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted">Route Target:</span>{' '}
-                <span className="font-medium text-ink truncate block">
-                  {selectedApp.route_target}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted">Follow-Up Reminder:</span>{' '}
-                <span className="font-medium text-ink">
-                  {selectedApp.follow_up_reminder_at
-                    ? new Date(selectedApp.follow_up_reminder_at).toLocaleDateString()
-                    : 'Not scheduled'}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted">Interview Date:</span>{' '}
-                <span className="font-medium text-ink">
-                  {selectedApp.interview_date
-                    ? new Date(selectedApp.interview_date).toLocaleString()
-                    : 'None'}
-                </span>
-              </div>
-            </div>
+                {/* 2. Tailored Summary & Highlighted Skills */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="rounded-xl border border-line bg-surface-2 p-3.5">
+                    <span className="font-semibold text-ink block text-[11px] mb-1.5">
+                      Tailored Candidate Summary
+                    </span>
+                    <p className="text-muted leading-relaxed text-[11px]">
+                      {selectedApp.prepared_payload?.tailored_summary
+                        ? String(selectedApp.prepared_payload.tailored_summary)
+                        : `Standard profile alignment for ${selectedApp.job_title}`}
+                    </p>
+                  </div>
 
-            {/* Section 4: Status History Audit Trail */}
-            <div className="mt-4">
-              <p className="text-xs font-semibold text-ink">
-                Status History Audit Trail ({selectedApp.status_history.length})
-              </p>
-              <ul className="mt-2 divide-y divide-line rounded-xl border border-line bg-surface-2 px-3">
-                {selectedApp.status_history.map((h) => (
-                  <li key={h.id} className="py-2.5 text-xs">
-                    <div className="flex items-center justify-between">
+                  <div className="rounded-xl border border-line bg-surface-2 p-3.5">
+                    <span className="font-semibold text-ink block text-[11px] mb-1.5">
+                      Highlighted Key Skills
+                    </span>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      {Array.isArray(selectedApp.prepared_payload?.highlighted_skills) &&
+                      (selectedApp.prepared_payload.highlighted_skills as unknown[]).length > 0 ? (
+                        (selectedApp.prepared_payload.highlighted_skills as string[]).map((skill: string, idx: number) => (
+                          <span
+                            key={idx}
+                            className="inline-flex items-center rounded-md bg-brand/10 px-2 py-0.5 text-[10px] font-medium text-brand"
+                          >
+                            {skill}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-muted text-[11px] italic">Verified from candidate resume profile</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. Answers to Screening Questions */}
+                {Array.isArray(selectedApp.prepared_payload?.answers_to_common_questions) &&
+                  (selectedApp.prepared_payload.answers_to_common_questions as unknown[]).length > 0 && (
+                    <div className="rounded-xl border border-line bg-surface-2 p-3.5">
+                      <div className="flex items-center gap-1.5 font-semibold text-ink mb-2">
+                        <ListChecks className="h-4 w-4 text-brand" />
+                        <span>Prepared Screening Questions & Answers</span>
+                      </div>
+                      <div className="space-y-2 mt-2">
+                        {(selectedApp.prepared_payload.answers_to_common_questions as Array<{ question: string; answer: string }>).map(
+                          (qa: { question: string; answer: string }, idx: number) => (
+                            <div
+                              key={idx}
+                              className="rounded-lg border border-line bg-surface p-2.5"
+                            >
+                              <p className="font-medium text-ink text-[11px]">{qa.question}</p>
+                              <p className="mt-1 text-muted text-[11px] leading-relaxed">{qa.answer}</p>
+                            </div>
+                          )
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                {/* 4. Subagent & Execution Parameters */}
+                <div className="rounded-xl border border-line bg-surface-2 p-3 text-[11px] text-muted flex items-center justify-between">
+                  <span>
+                    Subagent:{' '}
+                    <strong className="text-ink">
+                      {String(selectedApp.prepared_payload?.subagent || 'Agent 4 Modular Subagent')}
+                    </strong>
+                  </span>
+                  <span>
+                    Prepared:{' '}
+                    {selectedApp.prepared_payload?.prepared_at
+                      ? new Date(String(selectedApp.prepared_payload.prepared_at)).toLocaleString()
+                      : 'Active'}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <div>
+                {/* Section 1: User Approval Audit */}
+                <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 p-3.5 text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400">
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>1. User Manual Approval Audit</span>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <span className="text-muted block text-[11px]">Approved By User:</span>
                       <span className="font-semibold text-ink">
-                        {h.previous_status ? `${h.previous_status} → ` : ''}
-                        {h.new_status}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[11px] text-subtle">
-                        <Clock className="h-3 w-3" />
-                        {new Date(h.created_at).toLocaleString()}
+                        {selectedApp.approved_by_user ? 'Yes (Authorized)' : 'Pending User Approval'}
                       </span>
                     </div>
-                    {h.notes && (
-                      <p className="mt-0.5 text-[11px] text-muted">{h.notes}</p>
-                    )}
-                    {h.evidence && (
-                      <p className="mt-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
-                        Evidence: {h.evidence}
-                      </p>
-                    )}
-                    <span className="text-[10px] text-subtle">Source: {h.source}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">Approved At:</span>
+                      <span className="font-medium text-ink">
+                        {selectedApp.approved_at
+                          ? new Date(selectedApp.approved_at).toLocaleString()
+                          : 'Not approved'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">Internal Approval Reference:</span>
+                      <span className="font-mono text-ink text-[11px]">
+                        {selectedApp.approval_reference || 'None'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 2: External Submission & Employer Confirmation */}
+                <div className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3.5 text-xs">
+                  <div className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+                    <Send className="h-4 w-4" />
+                    <span>2. External Employer Submission & Confirmation</span>
+                  </div>
+                  <div className="mt-2.5 grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <span className="text-muted block text-[11px]">Current Status:</span>
+                      <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${getStatusBadgeClass(selectedApp.status)}`}>
+                        {selectedApp.status}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">Submission Attempted:</span>
+                      <span className="font-medium text-ink">
+                        {selectedApp.submission_attempted_at
+                          ? new Date(selectedApp.submission_attempted_at).toLocaleString()
+                          : 'Not attempted'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">Confirmed Applied At:</span>
+                      <span className="font-medium text-ink">
+                        {selectedApp.applied_at
+                          ? new Date(selectedApp.applied_at).toLocaleString()
+                          : 'Not confirmed'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">External Confirmation Evidence:</span>
+                      <span className="font-mono text-emerald-600 dark:text-emerald-400 font-medium">
+                        {selectedApp.confirmation_evidence || 'None'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">External Application ID:</span>
+                      <span className="font-mono text-ink">
+                        {selectedApp.external_application_id || 'Not returned'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted block text-[11px]">Submission Outcome:</span>
+                      <span className="font-medium text-ink capitalize">
+                        {selectedApp.submission_result || 'N/A'}
+                      </span>
+                    </div>
+                  </div>
+                  {selectedApp.error_message && (
+                    <div className="mt-2 rounded-lg border border-rose-500/30 bg-rose-500/10 p-2 text-rose-600 dark:text-rose-300">
+                      <span className="font-semibold">Error Message:</span> {selectedApp.error_message}
+                    </div>
+                  )}
+                </div>
+
+                {/* Section 3: Route & Follow-Up Reminders */}
+                <div className="mt-3 grid grid-cols-2 gap-3 rounded-xl border border-line bg-surface-2 p-3 text-xs">
+                  <div>
+                    <span className="text-muted">Route Type:</span>{' '}
+                    <span className="font-medium capitalize text-ink">
+                      {selectedApp.route_type.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted">Route Target:</span>{' '}
+                    <span className="font-medium text-ink truncate block">
+                      {selectedApp.route_target}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted">Follow-Up Reminder:</span>{' '}
+                    <span className="font-medium text-ink">
+                      {selectedApp.follow_up_reminder_at
+                        ? new Date(selectedApp.follow_up_reminder_at).toLocaleDateString()
+                        : 'Not scheduled'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted">Interview Date:</span>{' '}
+                    <span className="font-medium text-ink">
+                      {selectedApp.interview_date
+                        ? new Date(selectedApp.interview_date).toLocaleString()
+                        : 'None'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Section 4: Status History Audit Trail */}
+                <div className="mt-4">
+                  <p className="text-xs font-semibold text-ink">
+                    Status History Audit Trail ({selectedApp.status_history.length})
+                  </p>
+                  <ul className="mt-2 divide-y divide-line rounded-xl border border-line bg-surface-2 px-3">
+                    {selectedApp.status_history.map((h) => (
+                      <li key={h.id} className="py-2.5 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-ink">
+                            {h.previous_status ? `${h.previous_status} → ` : ''}
+                            {h.new_status}
+                          </span>
+                          <span className="inline-flex items-center gap-1 text-[11px] text-subtle">
+                            <Clock className="h-3 w-3" />
+                            {new Date(h.created_at).toLocaleString()}
+                          </span>
+                        </div>
+                        {h.notes && (
+                          <p className="mt-0.5 text-[11px] text-muted">{h.notes}</p>
+                        )}
+                        {h.evidence && (
+                          <p className="mt-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+                            Evidence: {h.evidence}
+                          </p>
+                        )}
+                        <span className="text-[10px] text-subtle">Source: {h.source}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

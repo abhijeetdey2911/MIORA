@@ -570,6 +570,158 @@ class JobicyRemoteAPIAdapter(BaseJobSourceAdapter):
         return results
 
 
+class LeverOfficialCompanyAdapter(BaseJobSourceAdapter):
+    """Official Lever Public ATS Postings adapter for verified employers with India & Remote presence."""
+
+    source_name = "Lever Official Company Boards"
+    adapter_type = "lever_api"
+    base_url = "https://api.lever.co/v0/postings"
+
+    DEFAULT_COMPANIES = [
+        "atlassian",
+        "spotify",
+        "postman",
+        "docker",
+        "palantir",
+        "figma",
+        "coursera",
+    ]
+
+    def __init__(self, companies: Optional[List[str]] = None) -> None:
+        self.companies = companies or self.DEFAULT_COMPANIES
+
+    def fetch_jobs(
+        self,
+        preference: JobPreference,
+        max_results: int = 25,
+    ) -> List[RawDiscoveredJobItem]:
+        results: List[RawDiscoveredJobItem] = []
+        target_roles = [r.lower() for r in (preference.job_roles or [])]
+        expanded_roles = [r.lower() for r in expand_job_roles(preference.job_roles or [])]
+        skill_keywords = [s.lower() for s in (preference.skills or [])]
+
+        with httpx.Client(timeout=6.0) as client:
+            for company_slug in self.companies:
+                try:
+                    url = f"{self.base_url}/{company_slug}?mode=json"
+                    resp = client.get(url)
+                    if resp.status_code != 200:
+                        continue
+                    postings = resp.json()
+                    if not isinstance(postings, list):
+                        continue
+                except Exception as exc:
+                    logger.debug("Lever board '%s' fetch error: %s", company_slug, exc)
+                    continue
+
+                for item in postings:
+                    title = (item.get("text") or "").strip()
+                    hosted_url = (item.get("hostedUrl") or "").strip()
+                    apply_url = (item.get("applyUrl") or "").strip() or hosted_url
+                    categories = item.get("categories") or {}
+                    loc_name = (categories.get("location") or "").strip()
+                    commitment = (categories.get("commitment") or "Full-time").strip()
+                    desc = _strip_html(item.get("descriptionPlain") or item.get("description") or "")
+                    if not (title and (hosted_url or apply_url)):
+                        continue
+
+                    title_lower = title.lower()
+                    desc_lower = desc.lower()
+                    matches_role = (
+                        not target_roles
+                        or any(tr in title_lower for tr in expanded_roles)
+                        or any(
+                            token in title_lower
+                            for tr in target_roles
+                            for token in tr.split()
+                            if len(token) > 3
+                        )
+                    )
+                    matches_skill = not skill_keywords or any(
+                        sk in desc_lower for sk in skill_keywords
+                    )
+                    if not (matches_role or matches_skill):
+                        continue
+
+                    # Location eligibility
+                    work_mode = (
+                        "Remote"
+                        if "remote" in loc_name.lower() or "remote" in title_lower
+                        else ("Hybrid" if "hybrid" in loc_name.lower() else "On-site")
+                    )
+                    loc_elig = evaluate_location_eligibility(
+                        job_location=loc_name or None,
+                        job_work_mode=work_mode,
+                        preference_locations=preference.locations or [],
+                        location_mode=getattr(preference, "location_mode", "INDIA_ONLY") or "INDIA_ONLY",
+                        preference_work_mode=preference.work_mode,
+                        job_description=desc,
+                        raw_metadata={"verified_portal": True, "ats": "lever"},
+                    )
+                    if not loc_elig.is_eligible:
+                        continue
+
+                    # Experience eligibility
+                    exp_elig = evaluate_experience_eligibility(
+                        job_title=title,
+                        job_description=desc,
+                        preference_experience_level=preference.experience_level or "Entry-level",
+                    )
+                    if not exp_elig.is_eligible:
+                        continue
+
+                    company_display = company_slug.replace("-", " ").title()
+                    created_at_ms = item.get("createdAt")
+                    posted_at = (
+                        datetime.fromtimestamp(created_at_ms / 1000.0, tz=timezone.utc)
+                        if isinstance(created_at_ms, (int, float))
+                        else datetime.now(timezone.utc)
+                    )
+
+                    results.append(
+                        RawDiscoveredJobItem(
+                            source_name=self.source_name,
+                            external_job_id=str(item.get("id")),
+                            title=title[:250],
+                            company=company_display[:200],
+                            description=desc,
+                            official_job_url=apply_url,
+                            location=loc_name or None,
+                            work_mode=work_mode,
+                            employment_type=commitment or "Full-time",
+                            experience_requirement=exp_elig.required_years,
+                            posted_at=posted_at,
+                            raw_metadata={
+                                "verified_portal": True,
+                                "ats": "lever",
+                                "company_key": company_slug,
+                                "hosted_url": hosted_url,
+                                "seniority_tier": exp_elig.detected_tier,
+                            },
+                        )
+                    )
+                    if len(results) >= max_results:
+                        return results
+
+        return results
+
+
+def check_listing_freshness(canonical_url: str, timeout: float = 4.0) -> bool:
+    """Check if a canonical job URL is still active/available (returns False if 404/410/dead)."""
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.head(canonical_url, headers={"User-Agent": "JobHunter-Freshness/1.0"})
+            if resp.status_code in (404, 410):
+                return False
+            if resp.status_code == 405:
+                with client.stream("GET", canonical_url, headers={"User-Agent": "JobHunter-Freshness/1.0"}) as stream_resp:
+                    return stream_resp.status_code not in (404, 410)
+            return resp.status_code < 400
+    except Exception:
+        # Transient network issues should not drop jobs unless confirmed dead
+        return True
+
+
 class JobDiscoveryAgent:
     """Agent 1: Coordinates job source adapters and deduplicates discovered jobs in PostgreSQL."""
 
@@ -582,6 +734,7 @@ class JobDiscoveryAgent:
             if adapters is not None
             else [
                 GreenhouseOfficialCompanyAdapter(),
+                LeverOfficialCompanyAdapter(),
                 JobicyRemoteAPIAdapter(),
                 RemotiveOfficialAPIAdapter(),
                 ArbeitnowPublicAPIAdapter(),
@@ -597,6 +750,11 @@ class JobDiscoveryAgent:
                 "Greenhouse Official Company Boards",
                 "greenhouse_api",
                 "https://boards-api.greenhouse.io/v1/boards",
+            ),
+            (
+                "Lever Official Company Boards",
+                "lever_api",
+                "https://api.lever.co/v0/postings",
             ),
             (
                 "Jobicy Remote Tech API",
@@ -742,6 +900,10 @@ class JobDiscoveryAgent:
                 continue
 
             source_row = source_by_name.get(raw.source_name)
+            meta = dict(raw.raw_metadata or {})
+            meta.setdefault("is_active", True)
+            meta.setdefault("last_checked_at", datetime.now(timezone.utc).isoformat())
+
             new_job = DiscoveredJob(
                 source_id=source_row.id if source_row else None,
                 source_name=raw.source_name,
@@ -765,7 +927,7 @@ class JobDiscoveryAgent:
                 salary_raw=raw.salary_raw,
                 posted_at=raw.posted_at,
                 official_job_url=raw.official_job_url[:600],
-                raw_metadata=raw.raw_metadata or {},
+                raw_metadata=meta,
             )
             db.add(new_job)
             db.flush()

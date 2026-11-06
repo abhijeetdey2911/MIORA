@@ -37,6 +37,10 @@ from app.models.multi_agent import (
 from app.models.job_preference import JobPreference
 from app.models.resume import Resume
 from app.models.resume_intelligence import ResumeVersion
+from app.services.application_preparer import (
+    build_full_application_package,
+    extract_candidate_name_from_text,
+)
 from app.services.telegram_service import telegram_service
 
 
@@ -121,24 +125,28 @@ class OfficialCompanyPortalHandler:
         resume_version: Optional[ResumeVersion],
     ) -> Dict[str, Any]:
         settings = get_settings()
-        return {
-            "subagent": "4.1_official_company_portal",
-            "company": job.company,
-            "job_title": job.title,
-            "portal_url": route.url_or_contact,
-            "preference_name": preference.preference_name,
-            "resume_id": str(resume.id),
-            "resume_name": resume.resume_name,
-            "resume_version_id": str(resume_version.id) if resume_version else None,
-            "resume_version_number": resume_version.version_number if resume_version else 1,
-            "playwright_enabled": bool(settings.PLAYWRIGHT_ENABLED),
-            "safety_checks": {
-                "captcha_bypass": "prohibited",
-                "auth_bypass": "prohibited",
-                "approved_resume_verified": True,
-            },
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-        }
+        resume_text = (resume_version.content if resume_version else resume.extracted_text) or ""
+        candidate_name = extract_candidate_name_from_text(resume_text, fallback="Candidate")
+        pkg = build_full_application_package(
+            subagent_name="4.1_official_company_portal",
+            company=job.company,
+            job_title=job.title,
+            route_type="official_company_portal",
+            route_target=route.url_or_contact,
+            job_description=job.description or "",
+            candidate_name=candidate_name,
+            skills=preference.skills or [],
+            resume_id=str(resume.id),
+            resume_name=resume.resume_name,
+            resume_version_id=str(resume_version.id) if resume_version else None,
+            resume_version_number=resume_version.version_number if resume_version else 1,
+            work_mode_pref=preference.work_mode or "Remote",
+            location_pref=", ".join(preference.locations or ["India"]),
+            extra_safety_checks={"playwright_enabled": bool(settings.PLAYWRIGHT_ENABLED)},
+        )
+        pkg["portal_url"] = route.url_or_contact
+        pkg["preference_name"] = preference.preference_name
+        return pkg
 
     def execute_submission(
         self,
@@ -213,22 +221,34 @@ class OfficialApplicationFormHandler:
         resume: Resume,
         resume_version: Optional[ResumeVersion],
     ) -> Dict[str, Any]:
-        return {
-            "subagent": "4.2_official_application_form",
-            "company": job.company,
-            "job_title": job.title,
-            "form_url": route.url_or_contact,
-            "preference_name": preference.preference_name,
-            "resume_id": str(resume.id),
-            "resume_name": resume.resume_name,
-            "resume_version_id": str(resume_version.id) if resume_version else None,
-            "fields_prepared": [
-                "candidate_resume_attachment",
-                "target_role_alignment",
-                "work_mode_preference",
-            ],
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-        }
+        resume_text = (resume_version.content if resume_version else resume.extracted_text) or ""
+        candidate_name = extract_candidate_name_from_text(resume_text, fallback="Candidate")
+        pkg = build_full_application_package(
+            subagent_name="4.2_official_application_form",
+            company=job.company,
+            job_title=job.title,
+            route_type="official_application_form",
+            route_target=route.url_or_contact,
+            job_description=job.description or "",
+            candidate_name=candidate_name,
+            skills=preference.skills or [],
+            resume_id=str(resume.id),
+            resume_name=resume.resume_name,
+            resume_version_id=str(resume_version.id) if resume_version else None,
+            resume_version_number=resume_version.version_number if resume_version else 1,
+            work_mode_pref=preference.work_mode or "Remote",
+            location_pref=", ".join(preference.locations or ["India"]),
+        )
+        pkg["form_url"] = route.url_or_contact
+        pkg["preference_name"] = preference.preference_name
+        pkg["fields_prepared"] = [
+            "candidate_resume_attachment",
+            "target_role_alignment",
+            "work_mode_preference",
+            "cover_letter_text",
+            "screening_questions",
+        ]
+        return pkg
 
     def execute_submission(
         self,
@@ -298,23 +318,29 @@ class PublishedHREmailHandler:
         resume: Resume,
         resume_version: Optional[ResumeVersion],
     ) -> Dict[str, Any]:
-        subject = f"Application for {job.title} — {job.company}"
-        body = (
-            f"Dear {job.company} Hiring Team,\n\n"
-            f"Please find attached my approved resume ({resume.resume_name}) for the {job.title} role.\n"
-            f"This application was prepared for my '{preference.preference_name}' preference profile.\n\n"
-            f"Best regards"
+        resume_text = (resume_version.content if resume_version else resume.extracted_text) or ""
+        candidate_name = extract_candidate_name_from_text(resume_text, fallback="Candidate")
+        pkg = build_full_application_package(
+            subagent_name="4.3_published_hr_email",
+            company=job.company,
+            job_title=job.title,
+            route_type="published_hr_email",
+            route_target=route.url_or_contact,
+            job_description=job.description or "",
+            candidate_name=candidate_name,
+            skills=preference.skills or [],
+            resume_id=str(resume.id),
+            resume_name=resume.resume_name,
+            resume_version_id=str(resume_version.id) if resume_version else None,
+            resume_version_number=resume_version.version_number if resume_version else 1,
+            work_mode_pref=preference.work_mode or "Remote",
+            location_pref=", ".join(preference.locations or ["India"]),
         )
-        return {
-            "subagent": "4.3_published_hr_email",
-            "recipient_email": route.url_or_contact,
-            "subject": subject,
-            "body_preview": body,
-            "resume_id": str(resume.id),
-            "resume_version_id": str(resume_version.id) if resume_version else None,
-            "anti_spam_verified": True,
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-        }
+        pkg["recipient_email"] = route.url_or_contact
+        pkg["subject"] = f"Application for {job.title} — {job.company}"
+        pkg["body_preview"] = pkg["cover_letter"][:300] + "..."
+        pkg["anti_spam_verified"] = True
+        return pkg
 
     def execute_submission(
         self,
@@ -384,19 +410,30 @@ class AuthorisedRecruiterOutreachHandler:
         resume: Resume,
         resume_version: Optional[ResumeVersion],
     ) -> Dict[str, Any]:
-        return {
-            "subagent": "4.4_authorised_recruiter_outreach",
-            "verified_contact": route.url_or_contact,
-            "company": job.company,
-            "job_title": job.title,
-            "outreach_note": (
-                f"Hello, I noticed the {job.title} opening at {job.company} and have prepared my "
-                f"approved resume ({resume.resume_name}) for consideration."
-            ),
-            "resume_id": str(resume.id),
-            "resume_version_id": str(resume_version.id) if resume_version else None,
-            "prepared_at": datetime.now(timezone.utc).isoformat(),
-        }
+        resume_text = (resume_version.content if resume_version else resume.extracted_text) or ""
+        candidate_name = extract_candidate_name_from_text(resume_text, fallback="Candidate")
+        pkg = build_full_application_package(
+            subagent_name="4.4_authorised_recruiter_outreach",
+            company=job.company,
+            job_title=job.title,
+            route_type="verified_recruiter_contact",
+            route_target=route.url_or_contact,
+            job_description=job.description or "",
+            candidate_name=candidate_name,
+            skills=preference.skills or [],
+            resume_id=str(resume.id),
+            resume_name=resume.resume_name,
+            resume_version_id=str(resume_version.id) if resume_version else None,
+            resume_version_number=resume_version.version_number if resume_version else 1,
+            work_mode_pref=preference.work_mode or "Remote",
+            location_pref=", ".join(preference.locations or ["India"]),
+        )
+        pkg["verified_contact"] = route.url_or_contact
+        pkg["outreach_note"] = (
+            f"Hello, I noticed the {job.title} opening at {job.company} and have prepared my "
+            f"approved resume ({resume.resume_name}) and tailored portfolio for consideration."
+        )
+        return pkg
 
     def execute_submission(
         self,

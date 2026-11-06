@@ -78,6 +78,7 @@ class ApplicationRouteDiscoveryAgent:
             domain = parsed.netloc.lower()
 
             if parsed.scheme in ("http", "https") and domain:
+                is_linkedin = "linkedin.com" in domain
                 is_known_portal = any(
                     ats in domain for ats in OFFICIAL_ATS_DOMAINS
                 ) or bool(raw_meta.get("verified_portal"))
@@ -86,16 +87,25 @@ class ApplicationRouteDiscoveryAgent:
                     if raw_meta.get("is_application_form")
                     else "official_company_portal"
                 )
-                verification_status = (
-                    "verified" if is_known_portal else "manual_review_required"
-                )
-                confidence = 92 if is_known_portal else 70
-                requires_manual = not is_known_portal
-                notes = (
-                    f"Verified official portal URL on {domain}."
-                    if is_known_portal
-                    else f"Official job URL on {domain}; marked for manual verification before automated submission."
-                )
+                if is_linkedin:
+                    verification_status = "manual_review_required"
+                    confidence = 65
+                    requires_manual = True
+                    notes = (
+                        "LinkedIn job posting identified. Automated login bypass/scraping is prohibited; "
+                        "assisted manual application workflow enabled with tailored package."
+                    )
+                else:
+                    verification_status = (
+                        "verified" if is_known_portal else "manual_review_required"
+                    )
+                    confidence = 92 if is_known_portal else 70
+                    requires_manual = not is_known_portal
+                    notes = (
+                        f"Verified official portal URL on {domain}."
+                        if is_known_portal
+                        else f"Official job URL on {domain}; marked for manual verification before automated submission."
+                    )
 
                 primary_route = ApplicationRoute(
                     discovered_job_id=job.id,
