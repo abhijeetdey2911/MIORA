@@ -205,3 +205,4 @@ def build_full_application_package(
         "safety_checks": safety_checks,
         "prepared_at": datetime.now(timezone.utc).isoformat(),
     }
+

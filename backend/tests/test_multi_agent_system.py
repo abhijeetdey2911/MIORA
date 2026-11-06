@@ -24,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.main import app
 from app.models.multi_agent import (
@@ -117,6 +118,12 @@ class FailingPreferenceAdapter(BaseJobSourceAdapter):
 @pytest.fixture(autouse=True)
 def clean_multi_agent_tables():
     """Ensure a clean database state before and after each test in this module."""
+    settings = get_settings()
+    if settings.ENVIRONMENT.lower() in ("production", "prod"):
+        raise RuntimeError(
+            "CRITICAL SAFETY VIOLATION: clean_multi_agent_tables cannot run in PRODUCTION environment!"
+        )
+
     def _purge():
         db = SessionLocal()
         try:

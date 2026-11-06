@@ -596,6 +596,8 @@ class ApplicationExecutionAgent:
         preferred_resume_version_id: Optional[uuid.UUID] = None,
     ) -> List[Application]:
         """Prepare or execute applications for shortlisted jobs while enforcing all safety rules."""
+        if automation_settings and automation_settings.is_kill_switch_engaged:
+            return []
         resume, resume_version = self._resolve_approved_resume_and_version(
             db, preference, preferred_resume_version_id
         )
@@ -780,6 +782,10 @@ class ApplicationExecutionAgent:
         Strict safety guarantee: User approval NEVER marks an application as 'Submitted'.
         Generates an internal approval audit reference (USER-APPROVAL-REC-xxxx).
         """
+        settings_record = db.scalar(select(AutomationSettings).limit(1))
+        if settings_record and settings_record.is_kill_switch_engaged:
+            raise ValueError("Application approval blocked: Emergency kill switch is engaged.")
+
         app_record = db.get(Application, application_id)
         if not app_record:
             raise ValueError("Application not found.")
@@ -865,6 +871,10 @@ class ApplicationExecutionAgent:
            - If outcome uncertain: transitions to 'Submission Unconfirmed'.
            - If submission fails or network/server error: transitions to 'Failed'.
         """
+        settings_record = db.scalar(select(AutomationSettings).limit(1))
+        if settings_record and settings_record.is_kill_switch_engaged:
+            raise ValueError("External submission blocked: Emergency kill switch is engaged.")
+
         app_record = db.get(Application, application_id)
         if not app_record:
             raise ValueError("Application not found.")

@@ -300,3 +300,4 @@ def test_check_listing_freshness():
         # 410 Gone -> Expired
         mock_head.return_value = MagicMock(status_code=410)
         assert check_listing_freshness("https://company.com/jobs/gone") is False
+
