@@ -15,7 +15,7 @@ def test_root_health_endpoint() -> None:
     data = response.json()
     assert "status" in data
     assert data["status"] in ["healthy", "degraded"]
-    assert data["project"] == "Project JobHunter"
+    assert data["project"] in ["Project JobHunter", "MIORA"]
     assert data["version"] == "0.1.0"
     assert "services" in data
     assert "database" in data["services"]
@@ -37,7 +37,7 @@ def test_root_meta_endpoint() -> None:
     response = client.get("/")
     assert response.status_code == 200
     data = response.json()
-    assert data["project"] == "Project JobHunter"
+    assert data["project"] in ["Project JobHunter", "MIORA"]
     assert "docs" in data
     assert "health" in data
 

@@ -124,7 +124,7 @@ class AIProviderClient:
         self.provider = (provider or settings.AI_PROVIDER or "openai").strip().lower()
         self.api_key = (
             api_key.strip()
-            if api_key and api_key.strip()
+            if api_key is not None
             else settings.get_effective_ai_api_key()
         )
         self.model = (model or settings.AI_MODEL or "gpt-4o-mini").strip()
